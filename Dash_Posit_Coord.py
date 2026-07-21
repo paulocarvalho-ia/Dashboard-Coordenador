@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 # CONFIGURAÇÃO DA PÁGINA
 # ============================================================
 st.set_page_config(
-    page_title="Dashboard Coordenador - Batalha Naval",
+    page_title="Dashboard Coordenador - Positivação & Cobertura",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -23,7 +23,7 @@ st.caption("4 Elos Distribuidora Ltda. - Centro de Custo 622")
 # ============================================================
 # DATAS DE CONTROLE (MANUAL + FUSO BRASIL)
 # ============================================================
-COMPILATION_DATE = "21/07/2025 10:00"  # ⚠️ Atualize manualmente a cada deploy
+COMPILATION_DATE = "21/07/2025 12:00"  # ⚠️ Atualize a cada deploy
 
 # ============================================================
 # CONEXÃO COM GOOGLE SHEETS
@@ -60,14 +60,13 @@ def load_data():
     df_bi['Ano'] = df_bi['Data'].dt.year
     df_bi['Mês_Ano'] = df_bi['Data'].dt.to_period('M').astype(str)
 
-    # Merge (BASE + BI)
+    # Merge
     df_merged = df_bi.merge(
         df_base[['codigo_cliente', 'nome_cliente', 'nome_vendedor_base', 'Cliente_Coligacao', 'Nome_Coordenador']],
         left_on=['codigo_cliente', 'nome_vendedor_bi'],
         right_on=['codigo_cliente', 'nome_vendedor_base'],
         how='left'
     )
-    # Fallback
     df_fallback = df_bi.merge(
         df_base[['codigo_cliente', 'nome_cliente', 'nome_vendedor_base', 'Cliente_Coligacao', 'Nome_Coordenador']],
         on='codigo_cliente',
@@ -95,7 +94,7 @@ INDUSTRIAS = [i for i in INDUSTRIAS if i.strip() != '']
 TOTAL_INDUSTRIAS = len(INDUSTRIAS)
 
 # ============================================================
-# FILTROS (COORDENADOR, VENDEDOR OPCIONAL)
+# FILTROS
 # ============================================================
 st.sidebar.header("🎯 Filtros")
 
@@ -131,7 +130,7 @@ coordenador_selecionado = st.sidebar.selectbox(
 )
 st.session_state['coordenador'] = coordenador_selecionado
 
-# Vendedor (dependente do coordenador)
+# Vendedor
 if coordenador_selecionado != "Todos":
     vendedores_filtrados = df_base[df_base['Nome_Coordenador'] == coordenador_selecionado]['nome_vendedor_base'].dropna().unique()
 else:
@@ -172,7 +171,7 @@ coligacao_selecionada = st.sidebar.selectbox(
 )
 st.session_state['coligacao'] = coligacao_selecionada
 
-# Ano, Mês, Indústria e Modo GAP
+# Ano, Mês, Indústria, Gap
 anos_disponiveis = sorted(df_merged['Ano'].dropna().unique())
 lista_anos = ["Todos"] + [str(int(a)) for a in anos_disponiveis]
 if 'ano' not in st.session_state: st.session_state['ano'] = 'Todos'
@@ -219,9 +218,8 @@ if industria_filtro != "Todas":
     df_filtrado = df_filtrado[df_filtrado['Nome_Fabricante'] == industria_filtro]
 
 # ============================================================
-# CARTEIRA ATIVA (MELHORIA 1)
+# CARTEIRA ATIVA
 # ============================================================
-# Clientes únicos que compraram em qualquer época (histórico completo) sob o coordenador/vendedor selecionado
 df_historico = df_merged.copy()
 if coordenador_selecionado != "Todos":
     df_historico = df_historico[df_historico['Nome_Coordenador'] == coordenador_selecionado]
@@ -229,12 +227,9 @@ if vendedor_selecionado != "Todos":
     df_historico = df_historico[df_historico['nome_vendedor'] == vendedor_selecionado]
 
 carteira_ativa_total = df_historico[df_historico['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
-
-# Positivados no período selecionado
 positivados_periodo = df_filtrado[df_filtrado['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
 pct_ativa = (positivados_periodo / carteira_ativa_total * 100) if carteira_ativa_total > 0 else 0
 
-# Clientes ativos que NÃO compraram no período
 clientes_ativos_ids = df_historico[df_historico['Nome_Fabricante'].notna()]['codigo_cliente'].unique()
 clientes_positivados_ids = df_filtrado[df_filtrado['Nome_Fabricante'].notna()]['codigo_cliente'].unique()
 clientes_sem_venda_ativos = [c for c in clientes_ativos_ids if c not in clientes_positivados_ids]
@@ -252,13 +247,11 @@ if len(clientes_sem_venda_ativos) > 0:
         df_sem_venda_ativos = df_base[(df_base['codigo_cliente'].isin(clientes_sem_venda_ativos))][['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao']]
         df_sem_venda_ativos.columns = ['Código', 'Nome', 'Coligação']
         st.dataframe(df_sem_venda_ativos, use_container_width=True, hide_index=True)
-
 st.divider()
 
 # ============================================================
 # MÉTRICAS - CARTEIRA TOTAL
 # ============================================================
-# Base da carteira total: clientes da base dos vendedores/coordenador selecionados
 if vendedor_selecionado != "Todos":
     total_clientes_base = df_base[df_base['nome_vendedor_base'] == vendedor_selecionado]['codigo_cliente'].nunique()
 elif coordenador_selecionado != "Todos":
@@ -269,17 +262,17 @@ else:
 
 total_positivados = len(clientes_positivados_ids)
 pct_total = (total_positivados / total_clientes_base * 100) if total_clientes_base > 0 else 0
-
 cobertura_media = df_filtrado.groupby('codigo_cliente')['Nome_Fabricante'].nunique().mean()
 cobertura_total = df_filtrado[['codigo_cliente', 'Nome_Fabricante']].dropna().drop_duplicates().shape[0]
 
-# Clientes da carteira total sem venda no período
-todos_ids_carteira = df_base['codigo_cliente'].unique()  # simplificado: todos da base
+# Clientes sem venda na carteira total
 if vendedor_selecionado != "Todos":
     todos_ids_carteira = df_base[df_base['nome_vendedor_base'] == vendedor_selecionado]['codigo_cliente'].unique()
 elif coordenador_selecionado != "Todos":
     vendedores_do_coord = df_base[df_base['Nome_Coordenador'] == coordenador_selecionado]['nome_vendedor_base'].unique()
     todos_ids_carteira = df_base[df_base['nome_vendedor_base'].isin(vendedores_do_coord)]['codigo_cliente'].unique()
+else:
+    todos_ids_carteira = df_base['codigo_cliente'].unique()
 
 clientes_sem_venda_carteira = [c for c in todos_ids_carteira if c not in clientes_positivados_ids]
 
@@ -300,7 +293,62 @@ if len(clientes_sem_venda_carteira) > 0:
         df_sem_venda_total = df_base[df_base['codigo_cliente'].isin(clientes_sem_venda_carteira)][['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao']]
         df_sem_venda_total.columns = ['Código', 'Nome', 'Coligação']
         st.dataframe(df_sem_venda_total, use_container_width=True, hide_index=True)
+st.divider()
 
+# ============================================================
+# PERFORMANCE POR VENDEDOR (RESTAURADA)
+# ============================================================
+st.subheader("👥 Performance por Vendedor")
+
+df_base_perf = df_base.copy()
+if coordenador_selecionado != "Todos":
+    df_base_perf = df_base_perf[df_base_perf['Nome_Coordenador'] == coordenador_selecionado]
+if coligacao_selecionada != "Todas":
+    df_base_perf = df_base_perf[df_base_perf['Cliente_Coligacao'] == coligacao_selecionada]
+
+vendedores_base = df_base_perf['nome_vendedor_base'].dropna().unique()
+
+perf_list = []
+for vendedor in vendedores_base:
+    clientes_carteira = df_base_perf[df_base_perf['nome_vendedor_base'] == vendedor]['codigo_cliente'].nunique()
+    df_bi_vendedor = df_filtrado[df_filtrado['nome_vendedor'] == vendedor]
+    clientes_pos = df_bi_vendedor[df_bi_vendedor['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
+    cobertura = df_bi_vendedor.groupby('codigo_cliente')['Nome_Fabricante'].nunique()
+    cobertura_media_vend = cobertura.mean() if len(cobertura) > 0 else 0
+    cobertura_total_vend = df_bi_vendedor[['codigo_cliente', 'Nome_Fabricante']].dropna().drop_duplicates().shape[0]
+    pct_vend = (clientes_pos / clientes_carteira * 100) if clientes_carteira > 0 else 0
+
+    perf_list.append({
+        'Vendedor': vendedor,
+        'Total_Clientes': clientes_carteira,
+        'Clientes_Positivados': clientes_pos,
+        '%_Positivação': round(pct_vend, 1),
+        'Cobertura_Media': round(cobertura_media_vend, 1),
+        'Cobertura_Total': cobertura_total_vend
+    })
+
+perf_vendedor = pd.DataFrame(perf_list).sort_values('%_Positivação', ascending=False)
+
+col1, col2 = st.columns(2)
+with col1:
+    fig_bar = px.bar(perf_vendedor, x='Vendedor', y='%_Positivação',
+                     title='% de Positivação por Vendedor',
+                     text=perf_vendedor['%_Positivação'].apply(lambda x: f'{x:.1f}%'),
+                     color='%_Positivação', color_continuous_scale='Greens')
+    fig_bar.update_traces(textposition='outside')
+    fig_bar.update_layout(xaxis_title="", yaxis_title="% Positivação", yaxis_range=[0, 105])
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+with col2:
+    fig_bar2 = px.bar(perf_vendedor, x='Vendedor', y='Cobertura_Media',
+                      title='Cobertura Média por Vendedor',
+                      text=perf_vendedor['Cobertura_Media'].apply(lambda x: f'{x:.1f}'),
+                      color='Cobertura_Media', color_continuous_scale='Blues')
+    fig_bar2.update_traces(textposition='outside')
+    fig_bar2.update_layout(xaxis_title="", yaxis_title="Cobertura Média")
+    st.plotly_chart(fig_bar2, use_container_width=True)
+
+st.dataframe(perf_vendedor, use_container_width=True, hide_index=True)
 st.divider()
 
 # ============================================================
@@ -320,7 +368,7 @@ if ano_selecionado != "Todos":
 if industria_filtro != "Todas":
     df_mensal = df_mensal[df_mensal['Nome_Fabricante'] == industria_filtro]
 
-base_fixa = total_clientes_base  # usa a mesma base da carteira total
+base_fixa = total_clientes_base
 
 evolucao_list = []
 meses_ordenados = sorted(df_mensal['Mês_Ano'].dropna().unique())
@@ -343,16 +391,17 @@ if len(evolucao) > 0:
     col1, col2 = st.columns(2)
     with col1:
         fig_evo = go.Figure()
-        fig_evo.add_trace(go.Bar(x=evolucao['Mês_Ano'], y=evolucao['%_Positivação'], text=[f'{v:.1f}%' for v in evolucao['%_Positivação']],
+        fig_evo.add_trace(go.Bar(x=evolucao['Mês_Ano'], y=evolucao['%_Positivação'],
+                                 text=[f'{v:.1f}%' for v in evolucao['%_Positivação']],
                                  textposition='outside', marker=dict(color=evolucao['%_Positivação'], colorscale='Greens', showscale=False)))
         fig_evo.update_layout(title='% de Positivação por Mês', xaxis_title="", yaxis_title="% Positivação", yaxis_range=[0,105],
                               xaxis=dict(type='category', categoryorder='array', categoryarray=meses_ordenados))
         st.plotly_chart(fig_evo, use_container_width=True)
     with col2:
         fig_evo2 = go.Figure()
-        fig_evo2.add_trace(go.Scatter(x=evolucao['Mês_Ano'], y=evolucao['Cobertura_Media'], mode='lines+markers+text',
-                                      text=[f'{v:.2f}' for v in evolucao['Cobertura_Media']], textposition='top center',
-                                      line=dict(color='blue', width=3), marker=dict(size=10)))
+        fig_evo2.add_trace(go.Scatter(x=evolucao['Mês_Ano'], y=evolucao['Cobertura_Media'],
+                                      mode='lines+markers+text', text=[f'{v:.2f}' for v in evolucao['Cobertura_Media']],
+                                      textposition='top center', line=dict(color='blue', width=3), marker=dict(size=10)))
         fig_evo2.update_layout(title='Cobertura Média por Mês', xaxis_title="", yaxis_title="Cobertura Média",
                                yaxis_range=[0, max(evolucao['Cobertura_Media'])*1.2 if len(evolucao)>0 else 1],
                                xaxis=dict(type='category', categoryorder='array', categoryarray=meses_ordenados))
@@ -364,7 +413,7 @@ else:
 st.divider()
 
 # ============================================================
-# RELATÓRIO BATALHA NAVAL (NOME ALTERADO)
+# RELATÓRIO BATALHA NAVAL
 # ============================================================
 st.subheader("📋 Relatório Batalha Naval")
 
