@@ -23,7 +23,7 @@ st.caption("4 Elos Distribuidora Ltda. - Centro de Custo 622")
 # ============================================================
 # DATAS DE CONTROLE (MANUAL + FUSO BRASIL)
 # ============================================================
-COMPILATION_DATE = "22/07/2025 12:40"  # ⚠️ Atualize a cada deploy
+COMPILATION_DATE = "22/07/2025 12:45"  # ⚠️ Atualize a cada deploy
 
 # ============================================================
 # CONEXÃO COM GOOGLE SHEETS
@@ -248,41 +248,6 @@ if industria_selecionada_lista:
     df_filtrado = df_filtrado[df_filtrado['Nome_Fabricante'].isin(industria_selecionada_lista)]
 
 # ============================================================
-# VISÃO POR PASTA (CARDS)
-# ============================================================
-st.subheader("📅 Visão por Pasta")
-
-# Métricas para cada pasta
-pastas_unicas = ["PA", "PV", "PVA"]
-cards_pasta = []
-for p in pastas_unicas:
-    df_pasta = df_filtrado[df_filtrado['Nome_Fabricante'].isin(
-        [ind for ind in TODAS_INDUSTRIAS if fabricante_pasta.get(ind) == p]
-    )]
-    ativos = df_pasta[df_pasta['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
-    # Carteira total de clientes cujo vendedor pertence à pasta (ou que compraram a pasta)
-    vendedores_pasta = [v for v, vp in vendedor_pasta.items() if vp == p or (p == "PVA" and vp == "PVA")]
-    clientes_carteira = df_base[df_base['nome_vendedor_base'].isin(vendedores_pasta)]['codigo_cliente'].nunique()
-    pct = (ativos / clientes_carteira * 100) if clientes_carteira > 0 else 0
-    cobertura_media_pasta = df_pasta.groupby('codigo_cliente')['Nome_Fabricante'].nunique().mean() if not df_pasta.empty else 0
-    cards_pasta.append({
-        "Pasta": p,
-        "Ativos": ativos,
-        "Carteira": clientes_carteira,
-        "% Positivação": pct,
-        "Cobertura Média": cobertura_media_pasta
-    })
-
-cols = st.columns(len(cards_pasta))
-for i, card in enumerate(cards_pasta):
-    with cols[i]:
-        st.metric(f"Pasta {card['Pasta']} - Clientes Ativos", card['Ativos'])
-        st.metric("Carteira", card['Carteira'])
-        st.metric("% Positivação", f"{card['% Positivação']:.1f}%")
-        st.metric("Cobertura Média", f"{card['Cobertura Média']:.1f} ind/cliente")
-st.divider()
-
-# ============================================================
 # CARTEIRA ATIVA (GERAL)
 # ============================================================
 df_historico = df_merged.copy()
@@ -433,7 +398,7 @@ if industria_selecionada_lista:
 evolucao_pasta = {}
 for p in ["PA", "PV", "PVA"]:
     industrias_pasta = [ind for ind in TODAS_INDUSTRIAS if fabricante_pasta.get(ind) == p]
-    df_pasta = df_mensal[df_mensal['Nome_Fabricante'].isin(industas_pasta)]
+    df_pasta = df_mensal[df_mensal['Nome_Fabricante'].isin(industrias_pasta)]
     if not df_pasta.empty:
         evolucao = df_pasta.groupby('Mês_Ano').agg(
             Clientes_Positivados=('codigo_cliente', lambda x: x[df_pasta.loc[x.index, 'Nome_Fabricante'].notna()].nunique())
@@ -595,7 +560,7 @@ if lista_clientes:
             meses_disp = sorted(df_cliente['Mês_Ano'].dropna().unique())
             if meses_disp:
                 tabela = []
-                for ind in INDUSTRIAS_PERMITIDAS if pasta_selecionada != "Todas" else TODAS_INDUSTRIAS:
+                for ind in (INDUSTRIAS_PERMITIDAS if pasta_selecionada != "Todas" else TODAS_INDUSTRIAS):
                     linha = {'Indústria': ind}
                     for m in meses_disp:
                         linha[m] = '✅' if ((df_cliente['Nome_Fabricante'] == ind) & (df_cliente['Mês_Ano'] == m)).any() else '❌'
