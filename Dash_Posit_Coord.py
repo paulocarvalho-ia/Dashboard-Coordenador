@@ -8,7 +8,7 @@ from io import BytesIO
 from zoneinfo import ZoneInfo
 
 # ============================================================
-# CONFIGURAÇÃO DA PÁGINA (SEM MENU_ITEMS INVÁLIDOS)
+# CONFIGURAÇÃO DA PÁGINA (BOTÕES OCULTADOS VIA CSS)
 # ============================================================
 st.set_page_config(
     page_title="Dashboard Coordenador - Batalha Naval",
@@ -17,14 +17,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Ocultar botões de editar e GitHub via CSS
+# Ocultar ícones do Streamlit
 st.markdown("""
 <style>
-    /* Ocultar ícone de lápis (Edit app) */
     [data-testid="stHeader"] button:has(svg[aria-label="Edit this page"]) {
         display: none;
     }
-    /* Ocultar ícone do GitHub (View source) */
     [data-testid="stHeader"] button:has(svg[aria-label="View source on GitHub"]) {
         display: none;
     }
@@ -135,7 +133,7 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 if not st.query_params:
-    for key in ['pasta', 'coordenador', 'vendedor', 'coligacao', 'ano', 'mes', 'industria_filtro', 'modo_gap']:
+    for key in ['pasta', 'coordenador', 'vendedor', 'coligacao', 'ano', 'mes', 'industria_filtro', 'modo_gap', 'meta']:
         st.session_state.pop(key, None)
 
 # -------------------- FILTRO DE PASTA --------------------
@@ -229,6 +227,18 @@ industria_selecionada_lista = st.sidebar.multiselect(
 )
 st.session_state['industria_filtro'] = industria_selecionada_lista
 
+# -------------------- META AJUSTÁVEL (NOVO) --------------------
+st.sidebar.divider()
+st.sidebar.header("🎯 Meta")
+if 'meta' not in st.session_state:
+    st.session_state['meta'] = 70
+meta_valor = st.sidebar.number_input(
+    "Meta de Positivação (%)",
+    min_value=0, max_value=100, value=st.session_state['meta'], step=1,
+    key='meta_input'
+)
+st.session_state['meta'] = meta_valor
+
 # -------------------- MODO GAP --------------------
 if 'modo_gap' not in st.session_state: st.session_state['modo_gap'] = False
 modo_gap = st.sidebar.checkbox("🔍 Mostrar apenas NÃO positivadas (GAP)", value=st.session_state['modo_gap'], key='modo_gap_check')
@@ -284,17 +294,29 @@ col_a1.metric("Carteira Ativa Total (histórico)", carteira_ativa_total)
 col_a2.metric("Positivados no Período", positivados_periodo)
 col_a3.metric("% Positivação (Carteira Ativa)", f"{pct_ativa:.1f}%")
 
-# Gráfico de clientes positivados mês a mês
+# Gráfico de clientes positivados mês a mês (eixo X corrigido)
 st.markdown("**Clientes positivados por mês (Carteira Ativa)**")
 df_mensal_ativos = df_historico[df_historico['Nome_Fabricante'].notna()]
 mensal_pos = df_mensal_ativos.groupby('Mês_Ano')['codigo_cliente'].nunique().reset_index()
 mensal_pos.columns = ['Mês', 'Clientes Positivados']
+
+# Ordenar meses cronologicamente
+meses_unicos = sorted(df_historico['Mês_Ano'].dropna().unique())
+# Filtrar apenas os meses que realmente aparecem nos dados
+meses_presentes = [m for m in meses_unicos if m in mensal_pos['Mês'].values]
+# Criar uma lista ordenada para o eixo X categórico
+mensal_pos['Mês'] = pd.Categorical(mensal_pos['Mês'], categories=meses_presentes, ordered=True)
+mensal_pos = mensal_pos.sort_values('Mês')
+
 if not mensal_pos.empty:
     fig_pos_mes = px.bar(mensal_pos, x='Mês', y='Clientes Positivados',
                          text='Clientes Positivados',
                          color_discrete_sequence=['#2E8B57'])
     fig_pos_mes.update_traces(textposition='outside')
-    fig_pos_mes.update_layout(xaxis_title="", yaxis_title="Nº de clientes")
+    fig_pos_mes.update_layout(
+        xaxis_title="", yaxis_title="Nº de clientes",
+        xaxis=dict(type='category', categoryorder='array', categoryarray=meses_presentes)
+    )
     st.plotly_chart(fig_pos_mes, use_container_width=True)
 else:
     st.info("Sem dados mensais para exibir.")
@@ -347,7 +369,7 @@ if clientes_sem_venda_carteira:
 st.divider()
 
 # ============================================================
-# PERFORMANCE POR VENDEDOR (BASE ATIVA)
+# PERFORMANCE POR VENDEDOR (BASE ATIVA E META AJUSTÁVEL)
 # ============================================================
 st.subheader("👥 Performance por Vendedor")
 
@@ -388,7 +410,8 @@ with col1:
                      title='% de Positivação por Vendedor (Base Ativa)',
                      text=perf_vendedor['%_Positivação_Ativa'].apply(lambda x: f'{x:.1f}%'),
                      color='%_Positivação_Ativa', color_continuous_scale='Greens')
-    fig_bar.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="Meta 70%")
+    fig_bar.add_hline(y=meta_valor, line_dash="dash", line_color="red",
+                      annotation_text=f"Meta {meta_valor}%")
     fig_bar.update_traces(textposition='outside')
     fig_bar.update_layout(xaxis_title="", yaxis_title="% Positivação", yaxis_range=[0, 105])
     st.plotly_chart(fig_bar, use_container_width=True)
@@ -523,13 +546,11 @@ with col_op2:
     )
 
 if base_op and comp_op:
-    # Clientes que compraram TODAS as indústrias da base
     clientes_base = set(df_filtrado[df_filtrado['Nome_Fabricante'].isin(base_op)]['codigo_cliente'].unique())
     for ind in base_op:
         clientes_com_ind = set(df_filtrado[df_filtrado['Nome_Fabricante'] == ind]['codigo_cliente'].unique())
         clientes_base &= clientes_com_ind
 
-    # Clientes que NÃO compraram NENHUMA das indústrias de comparação
     clientes_comp = set(df_filtrado['codigo_cliente'].unique())
     for ind in comp_op:
         clientes_com_ind = set(df_filtrado[df_filtrado['Nome_Fabricante'] == ind]['codigo_cliente'].unique())
@@ -613,11 +634,10 @@ with st.expander("👁️ Visualizar tabela"):
 st.divider()
 
 # ============================================================
-# EXPORTAÇÃO DO RELATÓRIO GERENCIAL (SEM ERRO DE VARIÁVEL)
+# EXPORTAÇÃO DO RELATÓRIO GERENCIAL (COM VERIFICAÇÃO DO RANKING)
 # ============================================================
 st.subheader("📑 Relatório Gerencial")
 if st.button("Gerar Relatório Gerencial (HTML)"):
-    # Verificar se df_ranking existe para evitar erro
     if 'df_ranking' not in locals():
         df_ranking = pd.DataFrame()
 
