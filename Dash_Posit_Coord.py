@@ -8,7 +8,7 @@ from io import BytesIO
 from zoneinfo import ZoneInfo
 
 # ============================================================
-# CONFIGURAÇÃO DA PÁGINA (BOTÕES OCULTADOS)
+# CONFIGURAÇÃO DA PÁGINA (BOTÕES OCULTADOS CORRIGIDOS)
 # ============================================================
 st.set_page_config(
     page_title="Dashboard Coordenador - Batalha Naval",
@@ -16,8 +16,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
-        'edit_app': False,
-        'github': None
+        'Edit app': False,
+        'View source': None
     }
 )
 
@@ -637,7 +637,7 @@ if st.button("Gerar Relatório Gerencial (HTML)"):
     <h2>GAP - Clientes sem compra no período</h2>
     <p>{len(clientes_sem_venda_carteira)} cliente(s) sem compra.</p>
     <h2>Ranking de Crescimento (Base Ativa)</h2>
-    {df_ranking[['Vendedor', 'Pasta', 'Cresc. Ativa (pp)']].to_html(index=False) if 'df_ranking' in locals() else '<p>Não disponível.</p>'}
+    {df_ranking[['Vendedor', 'Pasta', 'Cresc. Ativa (pp)']].to_html(index=False) if 'df_ranking' in locals() and not df_ranking.empty else '<p>Selecione um mês/ano para visualizar.</p>'}
     <div class="footer">4 Elos Distribuidora Ltda. - Centro de Custo 622</div>
     </body></html>
     """
