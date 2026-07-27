@@ -8,18 +8,28 @@ from io import BytesIO
 from zoneinfo import ZoneInfo
 
 # ============================================================
-# CONFIGURAÇÃO DA PÁGINA (BOTÕES OCULTADOS CORRIGIDOS)
+# CONFIGURAÇÃO DA PÁGINA (SEM MENU_ITEMS INVÁLIDOS)
 # ============================================================
 st.set_page_config(
     page_title="Dashboard Coordenador - Batalha Naval",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Edit app': False,
-        'View source': None
-    }
+    initial_sidebar_state="expanded"
 )
+
+# Ocultar botões de editar e GitHub via CSS
+st.markdown("""
+<style>
+    /* Ocultar ícone de lápis (Edit app) */
+    [data-testid="stHeader"] button:has(svg[aria-label="Edit this page"]) {
+        display: none;
+    }
+    /* Ocultar ícone do GitHub (View source) */
+    [data-testid="stHeader"] button:has(svg[aria-label="View source on GitHub"]) {
+        display: none;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 st.title("📊 Dashboard de Positivação e Cobertura")
 st.caption("4 Elos Distribuidora Ltda. - Centro de Custo 622")
@@ -274,7 +284,7 @@ col_a1.metric("Carteira Ativa Total (histórico)", carteira_ativa_total)
 col_a2.metric("Positivados no Período", positivados_periodo)
 col_a3.metric("% Positivação (Carteira Ativa)", f"{pct_ativa:.1f}%")
 
-# PONTO 1: gráfico de clientes positivados mês a mês
+# Gráfico de clientes positivados mês a mês
 st.markdown("**Clientes positivados por mês (Carteira Ativa)**")
 df_mensal_ativos = df_historico[df_historico['Nome_Fabricante'].notna()]
 mensal_pos = df_mensal_ativos.groupby('Mês_Ano')['codigo_cliente'].nunique().reset_index()
@@ -492,7 +502,7 @@ else:
 st.divider()
 
 # ============================================================
-# OPORTUNIDADES CRUZADAS (PONTO 7)
+# OPORTUNIDADES CRUZADAS
 # ============================================================
 st.subheader("🔀 Oportunidades Cruzadas")
 
@@ -517,17 +527,15 @@ if base_op and comp_op:
     clientes_base = set(df_filtrado[df_filtrado['Nome_Fabricante'].isin(base_op)]['codigo_cliente'].unique())
     for ind in base_op:
         clientes_com_ind = set(df_filtrado[df_filtrado['Nome_Fabricante'] == ind]['codigo_cliente'].unique())
-        clientes_base &= clientes_com_ind  # interseção
+        clientes_base &= clientes_com_ind
 
     # Clientes que NÃO compraram NENHUMA das indústrias de comparação
     clientes_comp = set(df_filtrado['codigo_cliente'].unique())
     for ind in comp_op:
         clientes_com_ind = set(df_filtrado[df_filtrado['Nome_Fabricante'] == ind]['codigo_cliente'].unique())
-        clientes_comp -= clientes_com_ind  # remove quem comprou
+        clientes_comp -= clientes_com_ind
 
-    # Resultado: clientes na base que também estão em não-compradores
     clientes_oportunidade = clientes_base.intersection(clientes_comp)
-    # Remover clientes que não estão na base ativa? Apenas informar.
     if clientes_oportunidade:
         st.success(f"🔎 {len(clientes_oportunidade)} clientes compraram todas as indústrias da base e não compraram nenhuma da comparação.")
         df_op = df_base[df_base['codigo_cliente'].isin(clientes_oportunidade)][['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'nome_vendedor_base']]
@@ -605,10 +613,14 @@ with st.expander("👁️ Visualizar tabela"):
 st.divider()
 
 # ============================================================
-# EXPORTAÇÃO DO RELATÓRIO GERENCIAL
+# EXPORTAÇÃO DO RELATÓRIO GERENCIAL (SEM ERRO DE VARIÁVEL)
 # ============================================================
 st.subheader("📑 Relatório Gerencial")
 if st.button("Gerar Relatório Gerencial (HTML)"):
+    # Verificar se df_ranking existe para evitar erro
+    if 'df_ranking' not in locals():
+        df_ranking = pd.DataFrame()
+
     html_geral = f"""
     <html><head><meta charset="UTF-8">
     <style>
@@ -637,7 +649,7 @@ if st.button("Gerar Relatório Gerencial (HTML)"):
     <h2>GAP - Clientes sem compra no período</h2>
     <p>{len(clientes_sem_venda_carteira)} cliente(s) sem compra.</p>
     <h2>Ranking de Crescimento (Base Ativa)</h2>
-    {df_ranking[['Vendedor', 'Pasta', 'Cresc. Ativa (pp)']].to_html(index=False) if 'df_ranking' in locals() and not df_ranking.empty else '<p>Selecione um mês/ano para visualizar.</p>'}
+    {df_ranking[['Vendedor', 'Pasta', 'Cresc. Ativa (pp)']].to_html(index=False) if not df_ranking.empty else '<p>Selecione um mês/ano para ativar o ranking.</p>'}
     <div class="footer">4 Elos Distribuidora Ltda. - Centro de Custo 622</div>
     </body></html>
     """
