@@ -8,13 +8,17 @@ from io import BytesIO
 from zoneinfo import ZoneInfo
 
 # ============================================================
-# CONFIGURAÇÃO DA PÁGINA
+# CONFIGURAÇÃO DA PÁGINA (BOTÕES OCULTADOS)
 # ============================================================
 st.set_page_config(
     page_title="Dashboard Coordenador - Batalha Naval",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'edit_app': False,
+        'github': None
+    }
 )
 
 st.title("📊 Dashboard de Positivação e Cobertura")
@@ -23,7 +27,7 @@ st.caption("4 Elos Distribuidora Ltda. - Centro de Custo 622")
 # ============================================================
 # DATAS DE CONTROLE (MANUAL + FUSO BRASIL)
 # ============================================================
-COMPILATION_DATE = "22/07/2025 12:45"  # ⚠️ Atualize a cada deploy
+COMPILATION_DATE = "27/07/2025 12:00"  # ⚠️ Atualize a cada deploy
 
 # ============================================================
 # CONEXÃO COM GOOGLE SHEETS
@@ -225,7 +229,6 @@ st.session_state['modo_gap'] = modo_gap
 # ============================================================
 df_filtrado = df_merged.copy()
 
-# Restrição de indústrias conforme pasta selecionada
 if pasta_selecionada != "Todas":
     INDUSTRIAS_PERMITIDAS = [ind for ind in TODAS_INDUSTRIAS if fabricante_pasta.get(ind) == pasta_selecionada]
 else:
@@ -270,6 +273,21 @@ col_a1, col_a2, col_a3 = st.columns(3)
 col_a1.metric("Carteira Ativa Total (histórico)", carteira_ativa_total)
 col_a2.metric("Positivados no Período", positivados_periodo)
 col_a3.metric("% Positivação (Carteira Ativa)", f"{pct_ativa:.1f}%")
+
+# PONTO 1: gráfico de clientes positivados mês a mês
+st.markdown("**Clientes positivados por mês (Carteira Ativa)**")
+df_mensal_ativos = df_historico[df_historico['Nome_Fabricante'].notna()]
+mensal_pos = df_mensal_ativos.groupby('Mês_Ano')['codigo_cliente'].nunique().reset_index()
+mensal_pos.columns = ['Mês', 'Clientes Positivados']
+if not mensal_pos.empty:
+    fig_pos_mes = px.bar(mensal_pos, x='Mês', y='Clientes Positivados',
+                         text='Clientes Positivados',
+                         color_discrete_sequence=['#2E8B57'])
+    fig_pos_mes.update_traces(textposition='outside')
+    fig_pos_mes.update_layout(xaxis_title="", yaxis_title="Nº de clientes")
+    st.plotly_chart(fig_pos_mes, use_container_width=True)
+else:
+    st.info("Sem dados mensais para exibir.")
 
 if clientes_sem_venda_ativos:
     with st.expander(f"🔴 {len(clientes_sem_venda_ativos)} clientes sem venda no período"):
@@ -319,7 +337,7 @@ if clientes_sem_venda_carteira:
 st.divider()
 
 # ============================================================
-# PERFORMANCE POR VENDEDOR (COM PASTA E META DE 70%)
+# PERFORMANCE POR VENDEDOR (BASE ATIVA)
 # ============================================================
 st.subheader("👥 Performance por Vendedor")
 
@@ -334,31 +352,32 @@ perf_list = []
 for vendedor in vendedores_base:
     pasta_v = vendedor_pasta.get(vendedor, "")
     clientes_carteira = df_base_perf[df_base_perf['nome_vendedor_base'] == vendedor]['codigo_cliente'].nunique()
+    clientes_ativos_hist = df_historico[df_historico['nome_vendedor'] == vendedor]['codigo_cliente'].nunique()
     df_bi_vendedor = df_filtrado[df_filtrado['nome_vendedor'] == vendedor]
     clientes_pos = df_bi_vendedor[df_bi_vendedor['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
     cobertura = df_bi_vendedor.groupby('codigo_cliente')['Nome_Fabricante'].nunique()
     cobertura_media_vend = cobertura.mean() if len(cobertura) > 0 else 0
     cobertura_total_vend = df_bi_vendedor[['codigo_cliente', 'Nome_Fabricante']].dropna().drop_duplicates().shape[0]
-    pct_vend = (clientes_pos / clientes_carteira * 100) if clientes_carteira > 0 else 0
+    pct_ativa_vend = (clientes_pos / clientes_ativos_hist * 100) if clientes_ativos_hist > 0 else 0
     perf_list.append({
         'Vendedor': vendedor,
         'Pasta': pasta_v,
         'Total_Clientes': clientes_carteira,
+        'Clientes_Ativos_Hist': clientes_ativos_hist,
         'Clientes_Positivados': clientes_pos,
-        '%_Positivação': round(pct_vend, 1),
+        '%_Positivação_Ativa': round(pct_ativa_vend, 1),
         'Cobertura_Media': round(cobertura_media_vend, 1),
         'Cobertura_Total': cobertura_total_vend
     })
 
-perf_vendedor = pd.DataFrame(perf_list).sort_values('%_Positivação', ascending=False)
+perf_vendedor = pd.DataFrame(perf_list).sort_values('%_Positivação_Ativa', ascending=False)
 
 col1, col2 = st.columns(2)
 with col1:
-    fig_bar = px.bar(perf_vendedor, x='Vendedor', y='%_Positivação',
-                     title='% de Positivação por Vendedor',
-                     text=perf_vendedor['%_Positivação'].apply(lambda x: f'{x:.1f}%'),
-                     color='%_Positivação', color_continuous_scale='Greens')
-    # Linha de meta 70%
+    fig_bar = px.bar(perf_vendedor, x='Vendedor', y='%_Positivação_Ativa',
+                     title='% de Positivação por Vendedor (Base Ativa)',
+                     text=perf_vendedor['%_Positivação_Ativa'].apply(lambda x: f'{x:.1f}%'),
+                     color='%_Positivação_Ativa', color_continuous_scale='Greens')
     fig_bar.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="Meta 70%")
     fig_bar.update_traces(textposition='outside')
     fig_bar.update_layout(xaxis_title="", yaxis_title="% Positivação", yaxis_range=[0, 105])
@@ -373,99 +392,152 @@ with col2:
     fig_bar2.update_layout(xaxis_title="", yaxis_title="Cobertura Média")
     st.plotly_chart(fig_bar2, use_container_width=True)
 
-st.dataframe(perf_vendedor[['Vendedor', 'Pasta', 'Total_Clientes', 'Clientes_Positivados', '%_Positivação', 'Cobertura_Media', 'Cobertura_Total']], use_container_width=True, hide_index=True)
+st.dataframe(perf_vendedor[['Vendedor', 'Pasta', 'Total_Clientes', 'Clientes_Ativos_Hist', 'Clientes_Positivados', '%_Positivação_Ativa', 'Cobertura_Media', 'Cobertura_Total']], use_container_width=True, hide_index=True)
 st.divider()
 
 # ============================================================
-# EVOLUÇÃO MENSAL POR PASTA (COM LINHA DE META)
+# ANÁLISE DE GAP GERAL
 # ============================================================
-st.subheader("📅 Evolução Mensal por Pasta")
+st.subheader("🔍 Análise de GAP")
 
-df_mensal = df_merged.copy()
-if coordenador_selecionado != "Todos":
-    df_mensal = df_mensal[df_mensal['Nome_Coordenador'] == coordenador_selecionado]
-if vendedor_selecionado != "Todos":
-    df_mensal = df_mensal[df_mensal['nome_vendedor'] == vendedor_selecionado]
-df_mensal = df_mensal[df_mensal['Nome_Fabricante'].isin(INDUSTRIAS_PERMITIDAS)]
-if coligacao_selecionada != "Todas":
-    df_mensal = df_mensal[df_mensal['Cliente_Coligacao'] == coligacao_selecionada]
-if ano_selecionado != "Todos":
-    df_mensal = df_mensal[df_mensal['Ano'] == int(ano_selecionado)]
-if industria_selecionada_lista:
-    df_mensal = df_mensal[df_mensal['Nome_Fabricante'].isin(industria_selecionada_lista)]
-
-# Preparar dados para cada pasta
-evolucao_pasta = {}
-for p in ["PA", "PV", "PVA"]:
-    industrias_pasta = [ind for ind in TODAS_INDUSTRIAS if fabricante_pasta.get(ind) == p]
-    df_pasta = df_mensal[df_mensal['Nome_Fabricante'].isin(industrias_pasta)]
-    if not df_pasta.empty:
-        evolucao = df_pasta.groupby('Mês_Ano').agg(
-            Clientes_Positivados=('codigo_cliente', lambda x: x[df_pasta.loc[x.index, 'Nome_Fabricante'].notna()].nunique())
-        ).reset_index()
-        evolucao['%_Positivação'] = round((evolucao['Clientes_Positivados'] / total_clientes_base * 100), 1) if total_clientes_base > 0 else 0
-        evolucao_pasta[p] = evolucao
-
-# Criar gráfico de linhas
-fig_evo = go.Figure()
-colors = {'PA': 'blue', 'PV': 'green', 'PVA': 'orange'}
-for p, df_ev in evolucao_pasta.items():
-    fig_evo.add_trace(go.Scatter(
-        x=df_ev['Mês_Ano'], y=df_ev['%_Positivação'],
-        mode='lines+markers', name=p, line=dict(color=colors[p], width=3)
-    ))
-# Linha de meta 70%
-fig_evo.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="Meta 70%")
-fig_evo.update_layout(
-    title='% de Positivação por Mês (por Pasta)',
-    xaxis_title="", yaxis_title="% Positivação",
-    yaxis_range=[0, 105],
-    xaxis=dict(type='category')
-)
-st.plotly_chart(fig_evo, use_container_width=True)
-
-# Tabela de evolução (opcional)
-with st.expander("📊 Ver tabela de evolução"):
-    for p, df_ev in evolucao_pasta.items():
-        st.write(f"**Pasta {p}**")
-        st.dataframe(df_ev, use_container_width=True, hide_index=True)
-st.divider()
-
-# ============================================================
-# ANÁLISE DE GAP POR PASTA
-# ============================================================
-st.subheader("🔍 Análise de GAP por Pasta")
-
-if vendedor_selecionado != "Todos":
-    vendedores_gap = [vendedor_selecionado]
-elif coordenador_selecionado != "Todos":
-    vendedores_gap = list(df_base[df_base['Nome_Coordenador'] == coordenador_selecionado]['nome_vendedor_base'].unique())
+if clientes_sem_venda_ativos:
+    st.warning(f"Existem {len(clientes_sem_venda_ativos)} clientes ativos no histórico que não compraram no período atual.")
 else:
-    vendedores_gap = list(df_base['nome_vendedor_base'].unique())
+    st.success("Todos os clientes ativos no histórico compraram no período atual.")
 
-for p in ["PA", "PV"]:
-    industrias_pasta = [ind for ind in TODAS_INDUSTRIAS if fabricante_pasta.get(ind) == p]
-    vendedores_da_pasta = [v for v in vendedores_gap if vendedor_pasta.get(v) in [p, "PVA"]]
-    if not vendedores_da_pasta:
-        continue
-    
-    # Clientes que compraram alguma indústria da pasta no período
-    clientes_com_pasta = df_filtrado[
-        (df_filtrado['nome_vendedor'].isin(vendedores_da_pasta)) &
-        (df_filtrado['Nome_Fabricante'].isin(industrias_pasta))
-    ]['codigo_cliente'].unique()
-    
-    # Todos os clientes da carteira desses vendedores
-    clientes_carteira_pasta = df_base[df_base['nome_vendedor_base'].isin(vendedores_da_pasta)]['codigo_cliente'].unique()
-    clientes_gap = [c for c in clientes_carteira_pasta if c not in clientes_com_pasta]
-    
-    if clientes_gap:
-        with st.expander(f"🚨 Pasta {p}: {len(clientes_gap)} clientes sem compra no período"):
-            df_gap = df_base[df_base['codigo_cliente'].isin(clientes_gap)][['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'nome_vendedor_base']]
-            df_gap.columns = ['Código', 'Nome', 'Coligação', 'Vendedor']
-            st.dataframe(df_gap, use_container_width=True, hide_index=True)
+if clientes_sem_venda_carteira:
+    with st.expander(f"📋 {len(clientes_sem_venda_carteira)} clientes sem compra no período (carteira total)"):
+        df_gap = df_base[df_base['codigo_cliente'].isin(clientes_sem_venda_carteira)][['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'nome_vendedor_base']]
+        df_gap.columns = ['Código', 'Nome', 'Coligação', 'Vendedor']
+        st.dataframe(df_gap, use_container_width=True, hide_index=True)
+st.divider()
+
+# ============================================================
+# RANKING DE CRESCIMENTO
+# ============================================================
+st.subheader("📈 Ranking de Crescimento")
+
+# Determinar período anterior
+if mes_selecionado != "Todos":
+    mes_atual = int(mes_selecionado.split(' - ')[0])
+    if ano_selecionado != "Todos":
+        ano_atual = int(ano_selecionado)
     else:
-        st.success(f"Pasta {p}: Todos os clientes compraram no período.")
+        ano_atual = df_merged['Ano'].max()
+    data_atual = pd.Timestamp(year=ano_atual, month=mes_atual, day=1)
+    data_anterior = data_atual - pd.DateOffset(months=1)
+    ano_ant = data_anterior.year
+    mes_ant = data_anterior.month
+    periodo_atual = [(ano_atual, mes_atual)]
+    periodo_anterior = [(ano_ant, mes_ant)]
+elif ano_selecionado != "Todos":
+    ano_atual = int(ano_selecionado)
+    ano_ant = ano_atual - 1
+    periodo_atual = [(ano_atual, m) for m in range(1,13)]
+    periodo_anterior = [(ano_ant, m) for m in range(1,13)]
+else:
+    periodo_atual = []
+    periodo_anterior = []
+
+if periodo_atual and periodo_anterior:
+    df_ant = df_merged.copy()
+    if coordenador_selecionado != "Todos":
+        df_ant = df_ant[df_ant['Nome_Coordenador'] == coordenador_selecionado]
+    if vendedor_selecionado != "Todos":
+        df_ant = df_ant[df_ant['nome_vendedor'] == vendedor_selecionado]
+    df_ant = df_ant[df_ant['Nome_Fabricante'].isin(INDUSTRIAS_PERMITIDAS)]
+    if coligacao_selecionada != "Todas":
+        df_ant = df_ant[df_ant['Cliente_Coligacao'] == coligacao_selecionada]
+    if industria_selecionada_lista:
+        df_ant = df_ant[df_ant['Nome_Fabricante'].isin(industria_selecionada_lista)]
+
+    cond_ant = pd.Series(False, index=df_ant.index)
+    for a, m in periodo_anterior:
+        cond_ant |= (df_ant['Ano'] == a) & (df_ant['Mês'] == m)
+    df_ant = df_ant[cond_ant]
+
+    ranking = []
+    for vendedor in vendedores_base:
+        pasta_v = vendedor_pasta.get(vendedor, "")
+        clientes_ativos_hist = df_historico[df_historico['nome_vendedor'] == vendedor]['codigo_cliente'].nunique()
+        df_atual_v = df_filtrado[df_filtrado['nome_vendedor'] == vendedor]
+        pos_atual = df_atual_v[df_atual_v['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
+        pct_atual_ativa = (pos_atual / clientes_ativos_hist * 100) if clientes_ativos_hist > 0 else 0
+        df_ant_v = df_ant[df_ant['nome_vendedor'] == vendedor]
+        pos_ant = df_ant_v[df_ant_v['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
+        pct_ant_ativa = (pos_ant / clientes_ativos_hist * 100) if clientes_ativos_hist > 0 else 0
+        crescimento_ativa = round(pct_atual_ativa - pct_ant_ativa, 1)
+        clientes_carteira_v = df_base_perf[df_base_perf['nome_vendedor_base'] == vendedor]['codigo_cliente'].nunique()
+        pct_atual_total = (pos_atual / clientes_carteira_v * 100) if clientes_carteira_v > 0 else 0
+        pct_ant_total = (pos_ant / clientes_carteira_v * 100) if clientes_carteira_v > 0 else 0
+        crescimento_total = round(pct_atual_total - pct_ant_total, 1)
+        ranking.append({
+            'Vendedor': vendedor,
+            'Pasta': pasta_v,
+            '% Atual (Ativa)': round(pct_atual_ativa,1),
+            '% Anterior (Ativa)': round(pct_ant_ativa,1),
+            'Cresc. Ativa (pp)': crescimento_ativa,
+            '% Atual (Total)': round(pct_atual_total,1),
+            '% Anterior (Total)': round(pct_ant_total,1),
+            'Cresc. Total (pp)': crescimento_total
+        })
+    df_ranking = pd.DataFrame(ranking).sort_values('Cresc. Ativa (pp)', ascending=False)
+
+    st.markdown("**Crescimento sobre Base Ativa**")
+    st.dataframe(df_ranking[['Vendedor', 'Pasta', '% Atual (Ativa)', '% Anterior (Ativa)', 'Cresc. Ativa (pp)']], use_container_width=True, hide_index=True)
+    st.markdown("**Crescimento sobre Carteira Total**")
+    st.dataframe(df_ranking[['Vendedor', 'Pasta', '% Atual (Total)', '% Anterior (Total)', 'Cresc. Total (pp)']], use_container_width=True, hide_index=True)
+else:
+    st.info("Selecione um mês ou ano específico para visualizar o ranking de crescimento em relação ao período anterior.")
+st.divider()
+
+# ============================================================
+# OPORTUNIDADES CRUZADAS (PONTO 7)
+# ============================================================
+st.subheader("🔀 Oportunidades Cruzadas")
+
+col_op1, col_op2 = st.columns(2)
+with col_op1:
+    st.markdown("**Indústrias da Base (compradas)**")
+    base_op = st.multiselect(
+        "Selecione uma ou mais indústrias que o cliente comprou:",
+        options=INDUSTRIAS_DISPONIVEIS,
+        key='base_cruzada'
+    )
+with col_op2:
+    st.markdown("**Indústrias de Comparação (não compradas)**")
+    comp_op = st.multiselect(
+        "Selecione uma ou mais indústrias que o cliente NÃO comprou:",
+        options=INDUSTRIAS_DISPONIVEIS,
+        key='comp_cruzada'
+    )
+
+if base_op and comp_op:
+    # Clientes que compraram TODAS as indústrias da base
+    clientes_base = set(df_filtrado[df_filtrado['Nome_Fabricante'].isin(base_op)]['codigo_cliente'].unique())
+    for ind in base_op:
+        clientes_com_ind = set(df_filtrado[df_filtrado['Nome_Fabricante'] == ind]['codigo_cliente'].unique())
+        clientes_base &= clientes_com_ind  # interseção
+
+    # Clientes que NÃO compraram NENHUMA das indústrias de comparação
+    clientes_comp = set(df_filtrado['codigo_cliente'].unique())
+    for ind in comp_op:
+        clientes_com_ind = set(df_filtrado[df_filtrado['Nome_Fabricante'] == ind]['codigo_cliente'].unique())
+        clientes_comp -= clientes_com_ind  # remove quem comprou
+
+    # Resultado: clientes na base que também estão em não-compradores
+    clientes_oportunidade = clientes_base.intersection(clientes_comp)
+    # Remover clientes que não estão na base ativa? Apenas informar.
+    if clientes_oportunidade:
+        st.success(f"🔎 {len(clientes_oportunidade)} clientes compraram todas as indústrias da base e não compraram nenhuma da comparação.")
+        df_op = df_base[df_base['codigo_cliente'].isin(clientes_oportunidade)][['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'nome_vendedor_base']]
+        df_op.columns = ['Código', 'Nome', 'Coligação', 'Vendedor']
+        st.dataframe(df_op, use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhum cliente atende aos critérios de oportunidade cruzada com os filtros atuais.")
+else:
+    st.info("Selecione ao menos uma indústria em cada lista para visualizar as oportunidades cruzadas.")
+
 st.divider()
 
 # ============================================================
@@ -530,6 +602,54 @@ with col3:
 
 with st.expander("👁️ Visualizar tabela"):
     st.dataframe(matriz_bin, use_container_width=True, hide_index=True)
+st.divider()
+
+# ============================================================
+# EXPORTAÇÃO DO RELATÓRIO GERENCIAL
+# ============================================================
+st.subheader("📑 Relatório Gerencial")
+if st.button("Gerar Relatório Gerencial (HTML)"):
+    html_geral = f"""
+    <html><head><meta charset="UTF-8">
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 30px; color: #333; }}
+        h1 {{ color: #1a3a4a; }}
+        h2 {{ color: #2c3e50; margin-top: 30px; }}
+        .metric-box {{ display: inline-block; margin: 10px; padding: 15px; background: #f8f9fa; border-radius: 8px; min-width: 150px; }}
+        .metric-box strong {{ display: block; font-size: 24px; color: #27ae60; }}
+        table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
+        th {{ background-color: #1a3a4a; color: white; padding: 8px; }}
+        td {{ padding: 6px; border: 1px solid #ddd; }}
+        .footer {{ margin-top: 40px; font-size: 11px; color: #888; text-align: center; }}
+    </style></head><body>
+    <h1>Relatório Gerencial - 4 Elos Distribuidora</h1>
+    <p>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')} | Filtros: Pasta={pasta_selecionada}, Coordenador={coordenador_selecionado}, Vendedor={vendedor_selecionado}, Ano={ano_selecionado}, Mês={mes_selecionado}</p>
+    <h2>Carteira Ativa</h2>
+    <div class="metric-box"><strong>{carteira_ativa_total}</strong> Clientes Ativos (histórico)</div>
+    <div class="metric-box"><strong>{positivados_periodo}</strong> Positivados no Período</div>
+    <div class="metric-box"><strong>{pct_ativa:.1f}%</strong> % Positivação (Ativa)</div>
+    <h2>Carteira Total</h2>
+    <div class="metric-box"><strong>{total_clientes_base}</strong> Clientes na Carteira</div>
+    <div class="metric-box"><strong>{pct_total:.1f}%</strong> % Positivação (Total)</div>
+    <div class="metric-box"><strong>{cobertura_media:.1f}</strong> Cobertura Média</div>
+    <h2>Performance por Vendedor</h2>
+    {perf_vendedor[['Vendedor', 'Pasta', '%_Positivação_Ativa', 'Cobertura_Media']].to_html(index=False)}
+    <h2>GAP - Clientes sem compra no período</h2>
+    <p>{len(clientes_sem_venda_carteira)} cliente(s) sem compra.</p>
+    <h2>Ranking de Crescimento (Base Ativa)</h2>
+    {df_ranking[['Vendedor', 'Pasta', 'Cresc. Ativa (pp)']].to_html(index=False) if 'df_ranking' in locals() else '<p>Não disponível.</p>'}
+    <div class="footer">4 Elos Distribuidora Ltda. - Centro de Custo 622</div>
+    </body></html>
+    """
+    st.download_button(
+        label="📥 Baixar Relatório Gerencial (HTML)",
+        data=html_geral.encode('utf-8'),
+        file_name=f'relatorio_gerencial_{datetime.now().strftime("%Y%m%d_%H%M")}.html',
+        mime='text/html',
+        use_container_width=True
+    )
+    st.info("Clique no botão acima para baixar o relatório. Abra o arquivo no navegador e salve como PDF (Ctrl+P).")
+
 st.divider()
 
 # ============================================================
