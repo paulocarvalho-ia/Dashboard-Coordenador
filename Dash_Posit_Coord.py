@@ -96,8 +96,14 @@ def load_data():
 
     return df_base, df_bi, df_merged, data_dados, fabricante_pasta, vendedor_pasta
 
+# ============================================================
+# BOTÃO ATUALIZAR DADOS AGORA (CORRIGIDO)
+# ============================================================
 if st.sidebar.button("🔄 Atualizar Dados Agora"):
     st.cache_data.clear()
+    # Remove filtros de mês e ano para redefinir com o último disponível
+    st.session_state.pop('mes', None)
+    st.session_state.pop('ano', None)
     st.rerun()
 
 df_base, df_bi, df_merged, data_dados, fabricante_pasta, vendedor_pasta = load_data()
@@ -140,7 +146,7 @@ if 'pasta' not in st.session_state: st.session_state['pasta'] = 'Todas'
 pasta_selecionada = st.sidebar.selectbox("Pasta", lista_pastas, index=lista_pastas.index(st.session_state['pasta']) if st.session_state['pasta'] in lista_pastas else 0, key='pasta_select')
 st.session_state['pasta'] = pasta_selecionada
 
-# Definição das indústrias permitidas
+# Definição das indústrias permitidas (PVA e Todas exibem todas)
 if pasta_selecionada in ["Todas", "PVA"]:
     INDUSTRIAS_PERMITIDAS = TODAS_INDUSTRIAS.copy()
 else:
@@ -201,6 +207,7 @@ st.session_state['segmento_filtro'] = segmento_selecionado
 # -------------------- ANO (PADRÃO ÚLTIMO ANO DISPONÍVEL) --------------------
 anos_disponiveis = sorted(df_merged['Ano'].dropna().unique())
 lista_anos = ["Todos"] + [str(int(a)) for a in anos_disponiveis]
+
 if 'ano' not in st.session_state:
     st.session_state['ano'] = str(int(anos_disponiveis[-1])) if anos_disponiveis else 'Todos'
 if st.session_state['ano'] not in lista_anos: st.session_state['ano'] = 'Todos'
@@ -212,16 +219,21 @@ if ano_selecionado != "Todos":
     meses_disponiveis = sorted(df_merged[df_merged['Ano'] == int(ano_selecionado)]['Mês'].dropna().unique())
 else:
     meses_disponiveis = sorted(df_merged['Mês'].dropna().unique())
+
 meses_nomes = {1:'Janeiro',2:'Fevereiro',3:'Março',4:'Abril',5:'Maio',6:'Junho',7:'Julho',8:'Agosto',9:'Setembro',10:'Outubro',11:'Novembro',12:'Dezembro'}
 lista_meses = ["Todos"] + [f"{int(m):02d} - {meses_nomes[int(m)]}" for m in meses_disponiveis]
 
+# Inicializa o mês com o último mês disponível, se ainda não estiver definido
 if 'mes' not in st.session_state:
     if meses_disponiveis:
         ultimo_mes = meses_disponiveis[-1]
         st.session_state['mes'] = f"{ultimo_mes:02d} - {meses_nomes.get(ultimo_mes, '')}"
     else:
         st.session_state['mes'] = 'Todos'
-if st.session_state['mes'] not in lista_meses: st.session_state['mes'] = 'Todos'
+
+# Garante que o valor ainda existe na lista (pode ter mudado de ano)
+if st.session_state['mes'] not in lista_meses:
+    st.session_state['mes'] = 'Todos'
 
 mes_selecionado = st.sidebar.selectbox("Mês", lista_meses, index=lista_meses.index(st.session_state['mes']), key='mes_select')
 st.session_state['mes'] = mes_selecionado
@@ -241,7 +253,10 @@ if pasta_selecionada in ["Todas", "PVA"]:
     INDUSTRIAS_DISPONIVEIS = TODAS_INDUSTRIAS.copy()
 else:
     INDUSTRIAS_DISPONIVEIS = [ind for ind in TODAS_INDUSTRIAS if fabricante_pasta.get(ind) == pasta_selecionada]
-if 'industria_filtro' not in st.session_state: st.session_state['industria_filtro'] = []
+
+if 'industria_filtro' not in st.session_state:
+    st.session_state['industria_filtro'] = []
+
 industria_selecionada_lista = st.sidebar.multiselect("Indústria(s)", options=INDUSTRIAS_DISPONIVEIS, default=st.session_state['industria_filtro'], placeholder="Digite para buscar...", key='industria_multiselect')
 st.session_state['industria_filtro'] = industria_selecionada_lista
 
@@ -288,6 +303,7 @@ def aplicar_filtros_comuns(df, incluir_mes=True):
         df = df[df['Nome_Fabricante'].isin(industria_selecionada_lista)]
     return df
 
+# DataFrames principais
 df_filtrado = aplicar_filtros_comuns(df_merged, incluir_mes=True)
 df_historico = aplicar_filtros_comuns(df_merged, incluir_mes=False)
 df_relatorio_base = aplicar_filtros_comuns(df_merged, incluir_mes=False)
@@ -354,6 +370,19 @@ if clientes_sem_venda_ativos:
     df_sem_venda_ativos.columns = ['Código', 'Nome', 'Coligação', 'Município', 'Canal', 'Segmento']
     with st.expander(f"🔴 {len(clientes_sem_venda_ativos)} clientes sem venda no mês (Carteira Ativa)"):
         st.dataframe(df_sem_venda_ativos, use_container_width=True, hide_index=True)
+
+    # Download Excel (Carteira Ativa)
+    output_ativa = BytesIO()
+    with pd.ExcelWriter(output_ativa, engine='openpyxl') as writer:
+        df_sem_venda_ativos.to_excel(writer, index=False, sheet_name='Sem Venda Ativa')
+    st.download_button(
+        "📥 Baixar Excel (Sem Venda Ativa)",
+        data=output_ativa.getvalue(),
+        file_name=f'sem_venda_ativa_{vendedor_selecionado if vendedor_selecionado != "Todos" else "geral"}_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        use_container_width=True
+    )
+
 st.divider()
 
 # ============================================================
@@ -394,6 +423,19 @@ if clientes_sem_venda_carteira:
     df_sem_venda_total.columns = ['Código', 'Nome', 'Coligação', 'Município', 'Canal', 'Segmento']
     with st.expander(f"🔴 {len(clientes_sem_venda_carteira)} clientes sem venda (Carteira Total)"):
         st.dataframe(df_sem_venda_total, use_container_width=True, hide_index=True)
+
+    # Download Excel (Carteira Total)
+    output_total = BytesIO()
+    with pd.ExcelWriter(output_total, engine='openpyxl') as writer:
+        df_sem_venda_total.to_excel(writer, index=False, sheet_name='Sem Venda Total')
+    st.download_button(
+        "📥 Baixar Excel (Sem Venda Total)",
+        data=output_total.getvalue(),
+        file_name=f'sem_venda_total_{vendedor_selecionado if vendedor_selecionado != "Todos" else "geral"}_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        use_container_width=True
+    )
+
 st.divider()
 
 # ============================================================
@@ -534,7 +576,7 @@ else:
     st.info("Selecione um mês para visualizar a análise por município, canal e segmento.")
 
 # ============================================================
-# OPORTUNIDADES CRUZADAS (COM SELETOR DE PERÍODO)
+# OPORTUNIDADES CRUZADAS (COM SELETOR DE PERÍODO E DOWNLOAD EXCEL)
 # ============================================================
 st.subheader("🔀 Oportunidades Cruzadas")
 
@@ -594,7 +636,7 @@ else:
 st.divider()
 
 # ============================================================
-# RELATÓRIO BATALHA NAVAL (COM SELETOR DE PERÍODO)
+# RELATÓRIO BATALHA NAVAL (SEM CSV, APENAS EXCEL E PDF)
 # ============================================================
 st.subheader("📋 Relatório Batalha Naval")
 
@@ -627,16 +669,19 @@ matriz_bin = matriz_bin[['Código', 'Nome_Cliente'] + colunas_fabricantes + ['To
 
 st.metric("📊 Total de Clientes no Relatório", len(matriz_bin))
 
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 with col1:
-    csv = matriz_bin.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Baixar CSV", data=csv, file_name=f'positivacao_{datetime.now().strftime("%Y%m%d")}.csv', mime='text/csv', use_container_width=True)
-with col2:
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         matriz_bin.to_excel(writer, index=False, sheet_name='Batalha Naval')
-    st.download_button("📥 Baixar Excel", data=output.getvalue(), file_name=f'batalha_naval_{datetime.now().strftime("%Y%m%d")}.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', use_container_width=True)
-with col3:
+    st.download_button(
+        "📥 Baixar Excel",
+        data=output.getvalue(),
+        file_name=f'batalha_naval_{datetime.now().strftime("%Y%m%d")}.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        use_container_width=True
+    )
+with col2:
     html_pdf = f"""
     <html><head><meta charset="UTF-8"><style>
         body {{ font-family: Arial, sans-serif; margin: 20px; }}
@@ -665,7 +710,13 @@ with col3:
             html_pdf += f"<td class='{classe}'>{valor}</td>"
         html_pdf += f"<td><strong>{row['Total_Indústrias']}</strong></td></tr>"
     html_pdf += f"</tbody></table><div class='footer'>4 Elos Distribuidora Ltda. - Centro de Custo 622 | Total: {len(matriz_bin)} clientes | Cobertura Total: {matriz_bin['Total_Indústrias'].sum()} coberturas</div></body></html>"
-    st.download_button("📥 Baixar PDF (HTML)", data=html_pdf.encode('utf-8'), file_name=f'batalha_naval_{datetime.now().strftime("%Y%m%d")}.html', mime='text/html', use_container_width=True)
+    st.download_button(
+        "📥 Baixar PDF (HTML)",
+        data=html_pdf.encode('utf-8'),
+        file_name=f'batalha_naval_{datetime.now().strftime("%Y%m%d")}.html',
+        mime='text/html',
+        use_container_width=True
+    )
     st.caption("💡 Abra o arquivo HTML e salve como PDF (Ctrl+P)")
 
 with st.expander("👁️ Visualizar tabela"):
@@ -673,7 +724,7 @@ with st.expander("👁️ Visualizar tabela"):
 st.divider()
 
 # ============================================================
-# FICHA DO CLIENTE (COM SELETOR DE PERÍODO)
+# FICHA DO CLIENTE (COM SELETOR DE PERÍODO E DOWNLOAD EXCEL)
 # ============================================================
 st.subheader("🔍 Ficha do Cliente")
 
@@ -725,6 +776,19 @@ if lista_clientes:
                     tabela.append(linha)
                 df_tab = pd.DataFrame(tabela)
                 st.dataframe(df_tab, use_container_width=True, hide_index=True)
+
+                # Download Excel da ficha
+                output_ficha = BytesIO()
+                with pd.ExcelWriter(output_ficha, engine='openpyxl') as writer:
+                    df_tab.to_excel(writer, index=False, sheet_name='Ficha Cliente')
+                st.download_button(
+                    "📥 Baixar Excel (Ficha do Cliente)",
+                    data=output_ficha.getvalue(),
+                    file_name=f'ficha_cliente_{codigo}_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    use_container_width=True
+                )
+
                 pos_industrias = sum(1 for l in tabela if l['Total'] > 0)
                 st.metric("Indústrias Positivadas", f"{pos_industrias} de {len(tabela)}")
                 st.metric("Cobertura Total do Cliente", df_cliente[['codigo_cliente', 'Nome_Fabricante']].dropna().drop_duplicates().shape[0])
