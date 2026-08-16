@@ -443,7 +443,7 @@ for linha in linhas:
 
 opcao = st.session_state['pagina_selecionada']
 
-# Limpar floats e forçar rolagem + limpeza visual (sem forçar cor de fundo)
+# Limpar floats e forçar rolagem
 st.markdown("""
     <div style='clear:both; height:0; overflow:hidden;'></div>
     <style>
@@ -488,7 +488,7 @@ if opcao == "🏠 Visão Geral":
     df_ytd = df_historico[(df_historico['Ano'] == ano_ytd) & (df_historico['MŒs'] <= mes_num)]
     ytd_total = df_ytd['codigo_cliente'].nunique()
 
-    # Gráfico com eixo secundário e valores nas barras
+    # Gráfico com MESMO eixo para mensais e YTD
     df_meses = pd.DataFrame({
         'Mês': list(mensal_pos['Mês']),
         'Clientes Positivados': list(mensal_pos['Clientes Positivados'])
@@ -497,7 +497,7 @@ if opcao == "🏠 Visão Geral":
 
     fig = go.Figure()
 
-    # Barras mensais (eixo esquerdo)
+    # Barras mensais
     fig.add_trace(go.Bar(
         x=df_meses['Rótulo'],
         y=df_meses['Clientes Positivados'],
@@ -505,11 +505,10 @@ if opcao == "🏠 Visão Geral":
         textposition='outside',
         marker_color='#2E8B57',
         name='Mensal',
-        yaxis='y',
         hovertemplate='Mês: %{x}<br>Clientes: %{y}'
     ))
 
-    # Barra YTD (eixo direito, vermelha e mesma escala)
+    # Barra YTD (mesmo eixo)
     fig.add_trace(go.Bar(
         x=['YTD'],
         y=[ytd_total],
@@ -517,20 +516,12 @@ if opcao == "🏠 Visão Geral":
         textposition='outside',
         marker_color='#D32F2F',
         name='YTD',
-        yaxis='y2',
         hovertemplate='YTD<br>Clientes: %{y}'
     ))
 
     fig.update_layout(
         title='Positivação Carteira Ativa (Mensal + YTD)',
-        yaxis=dict(title='Clientes Mensais'),
-        yaxis2=dict(
-            title='Clientes YTD',
-            overlaying='y',
-            side='right',
-            scaleanchor='y',
-            scaleratio=1
-        ),
+        yaxis=dict(title='Clientes'),
         barmode='group',
         legend=dict(x=0.01, y=0.99)
     )
@@ -759,7 +750,7 @@ elif opcao == "🟢 Softys Falcon":
 
         ytd_total = df_softys_ano['codigo_cliente'].nunique()
 
-        # Gráfico com eixo secundário, valores e YTD vermelho
+        # Gráfico com MESMO eixo para mensais e YTD
         df_mensal_softys = monthly_totals[['Mês', 'Clientes']].copy()
         df_mensal_softys['Rótulo'] = df_mensal_softys['Mês'].apply(formatar_mes_rotulo)
 
@@ -772,7 +763,6 @@ elif opcao == "🟢 Softys Falcon":
             textposition='outside',
             marker_color='#2E8B57',
             name='Mensal',
-            yaxis='y',
             hovertemplate='Mês: %{x}<br>Clientes: %{y}'
         ))
 
@@ -783,20 +773,12 @@ elif opcao == "🟢 Softys Falcon":
             textposition='outside',
             marker_color='#D32F2F',
             name='YTD',
-            yaxis='y2',
             hovertemplate='YTD<br>Clientes: %{y}'
         ))
 
         fig_softys.update_layout(
             title='Positivação Softys Falcon (Mensal + YTD)',
-            yaxis=dict(title='Clientes Mensais'),
-            yaxis2=dict(
-                title='Clientes YTD',
-                overlaying='y',
-                side='right',
-                scaleanchor='y',
-                scaleratio=1
-            ),
+            yaxis=dict(title='Clientes'),
             barmode='group',
             legend=dict(x=0.01, y=0.99)
         )
