@@ -37,7 +37,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 Dashboard de Positivação e Cobertura (Teste)")
+st.title("📊 Dashboard de Positivação e Cobertura")
 st.caption("4 Elos Distribuidora Ltda. - Centro de Custo 622")
 
 # ============================================================
