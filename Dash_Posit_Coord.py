@@ -12,7 +12,7 @@ import re
 # CONFIGURAÇÃO DA PÁGINA
 # ============================================================
 st.set_page_config(
-    page_title="Dashboard Coordenador (Teste) - Batalha Naval",
+    page_title="Dashboard Coordenador",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="collapsed"
