@@ -12,7 +12,7 @@ import re
 # CONFIGURAÇÃO DA PÁGINA
 # ============================================================
 st.set_page_config(
-    page_title="Dashboard Coordenador",
+    page_title="Dashboard Coordenador - Batalha Naval",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -443,9 +443,21 @@ for linha in linhas:
 
 opcao = st.session_state['pagina_selecionada']
 
-# Limpar floats e rolar para o topo
-st.markdown("<div style='clear:both;'></div>", unsafe_allow_html=True)
-st.markdown("<script>setTimeout(function(){ window.scrollTo(0, 0); }, 100);</script>", unsafe_allow_html=True)
+# Limpar floats e forçar rolagem + limpeza visual
+st.markdown("""
+    <div style='clear:both; height:0; overflow:hidden;'></div>
+    <style>
+        .stApp { background-color: white; }
+        .block-container { max-width: 100%; }
+        [data-testid="stHorizontalBlock"] > div { align-items: stretch; }
+    </style>
+    <script>
+        setTimeout(function() {
+            window.scrollTo(0, 0);
+            document.body.style.opacity = 1;
+        }, 200);
+    </script>
+""", unsafe_allow_html=True)
 
 # ============================================================
 # PÁGINA: VISÃO GERAL
@@ -498,13 +510,13 @@ if opcao == "🏠 Visão Geral":
         hovertemplate='Mês: %{x}<br>Clientes: %{y}'
     ))
 
-    # Barra YTD (eixo direito)
+    # Barra YTD (eixo direito, vermelha e mesma escala)
     fig.add_trace(go.Bar(
         x=['YTD'],
         y=[ytd_total],
         text=[ytd_total],
         textposition='outside',
-        marker_color='#1a3a4a',
+        marker_color='#D32F2F',
         name='YTD',
         yaxis='y2',
         hovertemplate='YTD<br>Clientes: %{y}'
@@ -513,7 +525,13 @@ if opcao == "🏠 Visão Geral":
     fig.update_layout(
         title='Positivação Carteira Ativa (Mensal + YTD)',
         yaxis=dict(title='Clientes Mensais'),
-        yaxis2=dict(title='Clientes YTD', overlaying='y', side='right'),
+        yaxis2=dict(
+            title='Clientes YTD',
+            overlaying='y',
+            side='right',
+            scaleanchor='y',
+            scaleratio=1
+        ),
         barmode='group',
         legend=dict(x=0.01, y=0.99)
     )
@@ -742,7 +760,7 @@ elif opcao == "🟢 Softys Falcon":
 
         ytd_total = df_softys_ano['codigo_cliente'].nunique()
 
-        # Gráfico com eixo secundário e valores nas barras
+        # Gráfico com eixo secundário, valores e YTD vermelho
         df_mensal_softys = monthly_totals[['Mês', 'Clientes']].copy()
         df_mensal_softys['Rótulo'] = df_mensal_softys['Mês'].apply(formatar_mes_rotulo)
 
@@ -764,7 +782,7 @@ elif opcao == "🟢 Softys Falcon":
             y=[ytd_total],
             text=[ytd_total],
             textposition='outside',
-            marker_color='#1a3a4a',
+            marker_color='#D32F2F',
             name='YTD',
             yaxis='y2',
             hovertemplate='YTD<br>Clientes: %{y}'
@@ -773,7 +791,13 @@ elif opcao == "🟢 Softys Falcon":
         fig_softys.update_layout(
             title='Positivação Softys Falcon (Mensal + YTD)',
             yaxis=dict(title='Clientes Mensais'),
-            yaxis2=dict(title='Clientes YTD', overlaying='y', side='right'),
+            yaxis2=dict(
+                title='Clientes YTD',
+                overlaying='y',
+                side='right',
+                scaleanchor='y',
+                scaleratio=1
+            ),
             barmode='group',
             legend=dict(x=0.01, y=0.99)
         )
