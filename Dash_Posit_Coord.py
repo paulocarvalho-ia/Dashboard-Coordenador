@@ -443,11 +443,10 @@ for linha in linhas:
 
 opcao = st.session_state['pagina_selecionada']
 
-# Limpar floats e forçar rolagem + limpeza visual
+# Limpar floats e forçar rolagem + limpeza visual (sem forçar cor de fundo)
 st.markdown("""
     <div style='clear:both; height:0; overflow:hidden;'></div>
     <style>
-        .stApp { background-color: white; }
         .block-container { max-width: 100%; }
         [data-testid="stHorizontalBlock"] > div { align-items: stretch; }
     </style>
