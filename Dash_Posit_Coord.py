@@ -25,11 +25,11 @@ st.markdown("""
     a[href*="github.com"] { display: none !important; }
     .stButton > button {
         width: 100%;
-        height: auto;
         min-height: 50px;
         white-space: normal;
         word-wrap: break-word;
-        overflow: visible;
+        overflow: hidden;
+        text-overflow: ellipsis;
         line-height: 1.2;
         padding: 8px 4px;
         text-align: center;
@@ -440,23 +440,9 @@ for linha in linhas:
         with cols[i]:
             if st.button(pagina, key=f'nav_btn_{pagina}', use_container_width=True):
                 st.session_state['pagina_selecionada'] = pagina
+                st.rerun()  # Força rerun imediato para limpar a tela
 
 opcao = st.session_state['pagina_selecionada']
-
-# Limpar floats e forçar rolagem
-st.markdown("""
-    <div style='clear:both; height:0; overflow:hidden;'></div>
-    <style>
-        .block-container { max-width: 100%; }
-        [data-testid="stHorizontalBlock"] > div { align-items: stretch; }
-    </style>
-    <script>
-        setTimeout(function() {
-            window.scrollTo(0, 0);
-            document.body.style.opacity = 1;
-        }, 200);
-    </script>
-""", unsafe_allow_html=True)
 
 # ============================================================
 # PÁGINA: VISÃO GERAL
