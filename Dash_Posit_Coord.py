@@ -840,7 +840,7 @@ elif opcao == "🟢 Softys Falcon":
         st.warning("Nenhum dado da Softys Falcon para os filtros atuais.")
 
 # ============================================================
-# PÁGINA: KENVUE PERFUMARIA (COM METAS)
+# PÁGINA: KENVUE PERFUMARIA (COM METAS E VISÃO POR COORDENADOR)
 # ============================================================
 elif opcao == "🟠 Kenvue Perfumaria":
     st.subheader("🟠 Foco Estratégico: Kenvue no Canal Perfumaria")
@@ -886,7 +886,7 @@ elif opcao == "🟠 Kenvue Perfumaria":
             col_m1.metric("Perfumarias Ativas (janela móvel)", total_perfumarias_ativas)
             col_m2.metric("Atendidas com Kenvue (mês atual)", f"{atendidos} ({pct_atendido:.1f}%)")
 
-            # Preparar dados para gráfico de % de atingimento
+            # Preparar dados para gráfico de % de atingimento (apenas vendedores com meta)
             realizado_por_vendedor = df_kenvue_mes.groupby('nome_vendedor')['codigo_cliente'].nunique().reset_index()
             realizado_por_vendedor.columns = ['Vendedor', 'Realizado']
 
@@ -894,14 +894,15 @@ elif opcao == "🟠 Kenvue Perfumaria":
             df_meta_vendedor['Realizado'] = df_meta_vendedor['Realizado'].fillna(0).astype(int)
             df_meta_vendedor['Atingimento %'] = (df_meta_vendedor['Realizado'] / df_meta_vendedor['Meta'] * 100).round(1)
             df_meta_vendedor['Atingimento %'] = df_meta_vendedor['Atingimento %'].fillna(0)
-            df_meta_vendedor = df_meta_vendedor.sort_values('Atingimento %', ascending=False)
+            df_meta_vendedor = df_meta_vendedor[df_meta_vendedor['Meta'] > 0]  # apenas com meta
+            df_meta_vendedor = df_meta_vendedor.sort_values('Vendedor')  # ordem alfabética
 
-            # Gráfico de % de atingimento (sem linha de meta)
+            # Gráfico de % de atingimento por vendedor (sem linha de meta)
             fig_meta_pct = px.bar(
                 df_meta_vendedor,
                 x='Vendedor',
                 y='Atingimento %',
-                title='% de Atingimento da Meta',
+                title='% de Atingimento da Meta por Vendedor',
                 text='Atingimento %',
                 color='Atingimento %',
                 color_continuous_scale='Greens'
@@ -910,10 +911,10 @@ elif opcao == "🟠 Kenvue Perfumaria":
             fig_meta_pct.update_layout(yaxis_range=[0, max(120, df_meta_vendedor['Atingimento %'].max()*1.1)])
             st.plotly_chart(fig_meta_pct, use_container_width=True)
 
-            # Tabela detalhada de metas por vendedor (ordenada alfabeticamente)
-            vendedores_perf = sorted(df_perfumarias_ativas['nome_vendedor'].dropna().unique())
+            # Tabela detalhada de metas por vendedor (apenas com meta, ordenada alfabeticamente)
+            vendedores_com_meta = sorted(df_meta_vendedor['Vendedor'].unique())
             lista_ken = []
-            for vend in vendedores_perf:
+            for vend in vendedores_com_meta:
                 total_vend = df_perfumarias_ativas[df_perfumarias_ativas['nome_vendedor'] == vend]['codigo_cliente'].nunique()
                 atend_vend = df_kenvue_mes[df_kenvue_mes['nome_vendedor'] == vend]['codigo_cliente'].nunique()
                 meta_vend = df_metas[df_metas['Vendedor'] == vend]['Meta'].sum() if not df_metas.empty else 0
@@ -929,7 +930,115 @@ elif opcao == "🟠 Kenvue Perfumaria":
             st.markdown("**Meta por Vendedor**")
             st.dataframe(df_ken_vend, use_container_width=True, hide_index=True)
 
-            # Listas Chegamos / Não Chegamos
+            # ---- VISÃO POR COORDENADOR ----
+            # Mapear vendedor -> coordenador
+            df_vend_coord = df_base[['nome_vendedor_base', 'Nome_Coordenador']].drop_duplicates()
+            df_vend_coord.columns = ['Vendedor', 'Coordenador']
+
+            # Mesclar metas e realizado com coordenador
+            df_meta_coord = df_meta_vendedor.merge(df_vend_coord, on='Vendedor', how='left')
+            # Agrupar por coordenador
+            coord_group = df_meta_coord.groupby('Coordenador').agg(
+                Meta=('Meta', 'sum'),
+                Realizado=('Realizado', 'sum')
+            ).reset_index()
+            coord_group['Atingimento %'] = (coord_group['Realizado'] / coord_group['Meta'] * 100).round(1)
+            coord_group = coord_group.sort_values('Coordenador')
+
+            # Gráfico de % de atingimento por coordenador
+            fig_meta_coord = px.bar(
+                coord_group,
+                x='Coordenador',
+                y='Atingimento %',
+                title='% de Atingimento da Meta por Coordenador',
+                text='Atingimento %',
+                color='Atingimento %',
+                color_continuous_scale='Blues'
+            )
+            fig_meta_coord.update_traces(textposition='outside')
+            fig_meta_coord.update_layout(yaxis_range=[0, max(120, coord_group['Atingimento %'].max()*1.1)])
+            st.plotly_chart(fig_meta_coord, use_container_width=True)
+
+            # Tabela "Meta por Coordenador" abaixo da tabela de vendedores
+            st.markdown("**Meta por Coordenador**")
+            st.dataframe(coord_group, use_container_width=True, hide_index=True)
+
+            # ---- VOLUME DE VENDAS POR COLIGAÇÃO (PERFUMARIA) ----
+            st.markdown("**Volume de Vendas por Coligação (Perfumaria)**")
+            # Definir mês atual e anterior
+            if mes_selecionado != "Todos":
+                mes_num = int(mes_selecionado.split(' - ')[0])
+                anos_do_mes = df_historico[df_historico['MŒs'] == mes_num]['Ano'].unique()
+                ano_atual = max(anos_do_mes) if len(anos_do_mes) > 0 else df_historico['Ano'].max()
+                mes_atual_str = f"{ano_atual}-{mes_num:02d}"
+            else:
+                if not df_historico.empty:
+                    mes_atual_str = df_historico['MŒs_Ano'].max()
+                    ano_atual = int(mes_atual_str.split('-')[0])
+                    mes_num = int(mes_atual_str.split('-')[1])
+                else:
+                    mes_atual_str = None
+
+            if mes_atual_str:
+                # Calcular mês anterior
+                if mes_num == 1:
+                    mes_ant_num = 12
+                    ano_ant = ano_atual - 1
+                else:
+                    mes_ant_num = mes_num - 1
+                    ano_ant = ano_atual
+                mes_ant_str = f"{ano_ant}-{mes_ant_num:02d}"
+
+                # Filtrar vendas de perfumaria
+                df_perf_vendas = df_historico[df_historico['Canal'] == 'PERFUMARIA'].copy()
+                # Somar Valor_Vendas por coligação e mês
+                df_vendas_mes_atual = df_perf_vendas[df_perf_vendas['MŒs_Ano'] == mes_atual_str]
+                df_vendas_mes_ant = df_perf_vendas[df_perf_vendas['MŒs_Ano'] == mes_ant_str]
+
+                # Agrupar por coligação
+                if 'Valor_Vendas' in df_perf_vendas.columns:
+                    # Somar Valor_Vendas
+                    vendas_atual_colig = df_vendas_mes_atual.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+                    vendas_atual_colig.columns = ['Coligação', 'Mês Atual']
+                    vendas_ant_colig = df_vendas_mes_ant.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+                    vendas_ant_colig.columns = ['Coligação', 'Mês Anterior']
+                else:
+                    # Caso não haja Valor_Vendas, usar contagem de clientes
+                    vendas_atual_colig = df_vendas_mes_atual.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
+                    vendas_atual_colig.columns = ['Coligação', 'Mês Atual']
+                    vendas_ant_colig = df_vendas_mes_ant.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
+                    vendas_ant_colig.columns = ['Coligação', 'Mês Anterior']
+
+                # Mesclar
+                df_vol_colig = vendas_ant_colig.merge(vendas_atual_colig, on='Coligação', how='outer').fillna(0)
+                df_vol_colig = df_vol_colig.sort_values('Coligação')
+
+                # Gráfico de barras agrupado
+                fig_vol = go.Figure()
+                fig_vol.add_trace(go.Bar(
+                    x=df_vol_colig['Coligação'],
+                    y=df_vol_colig['Mês Anterior'],
+                    name='Mês Anterior',
+                    marker_color='#FFA000'
+                ))
+                fig_vol.add_trace(go.Bar(
+                    x=df_vol_colig['Coligação'],
+                    y=df_vol_colig['Mês Atual'],
+                    name='Mês Atual',
+                    marker_color='#2E8B57'
+                ))
+                fig_vol.update_layout(
+                    title='Volume de Vendas por Coligação (Perfumaria)',
+                    barmode='group',
+                    yaxis_title='Valor de Vendas',
+                    xaxis_title='Coligação'
+                )
+                st.plotly_chart(fig_vol, use_container_width=True)
+
+                # Tabela de volume
+                st.dataframe(df_vol_colig, use_container_width=True, hide_index=True)
+
+            # ---- LISTAS CHEGAMOS / NÃO CHEGAMOS ----
             clientes_nao_atendidos = [c for c in df_perfumarias_ativas['codigo_cliente'].unique()
                                       if c not in clientes_kenvue_mes]
 
@@ -995,6 +1104,22 @@ elif opcao == "🟠 Kenvue Perfumaria":
                 st.download_button("📄 Baixar PDF (Meta por Vendedor)", data=pdf_kenv,
                                    file_name=f'kenvue_meta_vendedor_{datetime.now().strftime("%Y%m%d")}.pdf',
                                    mime='application/pdf', use_container_width=True)
+
+            # Download da tabela de metas por coordenador
+            output_kenc = BytesIO()
+            with pd.ExcelWriter(output_kenc, engine='openpyxl') as writer:
+                coord_group.to_excel(writer, index=False, sheet_name='Meta Kenvue Coordenador')
+            st.download_button("📥 Baixar Excel (Meta por Coordenador)", data=output_kenc.getvalue(),
+                               file_name=f'kenvue_meta_coordenador_{datetime.now().strftime("%Y%m%d")}.xlsx',
+                               mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                               use_container_width=True)
+
+            pdf_kenc = gerar_pdf_html(coord_group, "Meta Kenvue por Coordenador")
+            if pdf_kenc:
+                st.download_button("📄 Baixar PDF (Meta por Coordenador)", data=pdf_kenc,
+                                   file_name=f'kenvue_meta_coordenador_{datetime.now().strftime("%Y%m%d")}.pdf',
+                                   mime='application/pdf', use_container_width=True)
+
         else:
             st.warning("Nenhuma venda de Kenvue no mês atual para o canal Perfumaria.")
     else:
