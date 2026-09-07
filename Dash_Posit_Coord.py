@@ -134,7 +134,6 @@ def load_data():
             bi_rename[col] = 'Linha_Produto'
         elif 'categoria' in col_norm:
             bi_rename[col] = 'Categoria'
-        # ✅ Detecta "Valor Venda" ou "Valor das Vendas"
         elif 'valor' in col_norm and ('venda' in col_norm or 'vendas' in col_norm):
             bi_rename[col] = 'Valor_Vendas'
 
@@ -160,9 +159,25 @@ def load_data():
 
     # ✅ Converter Valor_Vendas para numérico (tratando formatos)
     if 'Valor_Vendas' in df_bi.columns:
-        df_bi['Valor_Vendas'] = df_bi['Valor_Vendas'].astype(str).str.replace('R$', '', regex=False)
-        df_bi['Valor_Vendas'] = df_bi['Valor_Vendas'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-        df_bi['Valor_Vendas'] = pd.to_numeric(df_bi['Valor_Vendas'], errors='coerce').fillna(0)
+        def converter_valor(valor):
+            if pd.isna(valor):
+                return 0.0
+            s = str(valor).strip().replace('R$', '').replace(' ', '')
+            if s == '':
+                return 0.0
+            if ',' in s:
+                s = s.replace('.', '').replace(',', '.')
+            elif '.' in s:
+                if s.count('.') == 1:
+                    pass
+                else:
+                    s = s.replace('.', '')
+            try:
+                return float(s)
+            except:
+                return 0.0
+
+        df_bi['Valor_Vendas'] = df_bi['Valor_Vendas'].apply(converter_valor)
 
     # ============================================================
     # MERGE
@@ -525,6 +540,23 @@ if opcao == "🏠 Visão Geral":
         legend=dict(x=0.01, y=0.99)
     )
     st.plotly_chart(fig, use_container_width=True)
+
+    if vendedor_selecionado != "Todos":
+        total_clientes_base = df_base[df_base['nome_vendedor_base'] == vendedor_selecionado]['codigo_cliente'].nunique()
+    elif coordenador_selecionado != "Todos":
+        vendedores_do_coord = df_base[df_base['Nome_Coordenador'] == coordenador_selecionado]['nome_vendedor_base'].unique()
+        total_clientes_base = df_base[df_base['nome_vendedor_base'].isin(vendedores_do_coord)]['codigo_cliente'].nunique()
+    else:
+        total_clientes_base = df_base['codigo_cliente'].nunique()
+
+    total_positivados = len(df_filtrado[df_filtrado['Nome_Fabricante'].notna()]['codigo_cliente'].unique())
+    pct_total = (total_positivados / total_clientes_base * 100) if total_clientes_base > 0 else 0
+
+    st.subheader("📋 Carteira Total")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Clientes na Carteira", total_clientes_base)
+    col2.metric("Clientes Positivados", total_positivados)
+    col3.metric("% Positivação (Carteira Total)", f"{pct_total:.1f}%")
 
 # ============================================================
 # PÁGINA: PERFORMANCE POR VENDEDOR
