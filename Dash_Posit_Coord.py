@@ -210,6 +210,16 @@ def formatar_mes_rotulo(periodo_str):
     except:
         return periodo_str
 
+def formatar_numero_br(valor):
+    """Formata número para padrão brasileiro: 1.234,56"""
+    if pd.isna(valor):
+        return ''
+    try:
+        numero = float(valor)
+        return f"{numero:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return str(valor)
+
 def gerar_pdf_html(tabela_df, titulo):
     """Gera PDF a partir de DataFrame usando HTML + CSS"""
     try:
@@ -739,6 +749,7 @@ elif opcao == "🟢 Softys Falcon":
 
         ytd_total = df_softys_ano['codigo_cliente'].nunique()
 
+        # Gráfico mensal + YTD
         df_mensal_softys = monthly_totals[['Mês', 'Clientes']].copy()
         df_mensal_softys['Rótulo'] = df_mensal_softys['Mês'].apply(formatar_mes_rotulo)
 
@@ -850,13 +861,23 @@ elif opcao == "🟢 Softys Falcon":
             df_top = df_top.sort_values('Mês Atual', ascending=False).head(10)
 
             if not df_top.empty:
+                # Calcular variação percentual
+                df_top['Variação %'] = ((df_top['Mês Atual'] / df_top['Média 6M']) - 1) * 100
+                df_top['Variação %'] = df_top['Variação %'].round(1).fillna(0)
+
+                # Criar cópia formatada para exibição
+                df_top_display = df_top.copy()
+                df_top_display['Mês Atual'] = df_top_display['Mês Atual'].apply(formatar_numero_br)
+                df_top_display['Média 6M'] = df_top_display['Média 6M'].apply(formatar_numero_br)
+
+                # Gráfico (usar valores numéricos originais)
                 fig_top = go.Figure()
                 fig_top.add_trace(go.Bar(
                     x=df_top['Coligação'],
                     y=df_top['Mês Atual'],
                     name='Mês Atual',
                     marker_color='#2E8B57',
-                    text=df_top['Mês Atual'].round(2),
+                    text=df_top['Mês Atual'].apply(formatar_numero_br),
                     textposition='outside'
                 ))
                 fig_top.add_trace(go.Bar(
@@ -864,7 +885,7 @@ elif opcao == "🟢 Softys Falcon":
                     y=df_top['Média 6M'],
                     name='Média 6M',
                     marker_color='#FFA000',
-                    text=df_top['Média 6M'].round(2),
+                    text=df_top['Média 6M'].apply(formatar_numero_br),
                     textposition='outside'
                 ))
                 fig_top.update_layout(
@@ -875,7 +896,9 @@ elif opcao == "🟢 Softys Falcon":
                 )
                 st.plotly_chart(fig_top, use_container_width=True)
 
-                st.dataframe(df_top, use_container_width=True, hide_index=True)
+                # Exibir tabela com formatação e coluna de variação
+                st.dataframe(df_top_display[['Coligação', 'Mês Atual', 'Média 6M', 'Variação %']],
+                             use_container_width=True, hide_index=True)
             else:
                 st.info("Sem dados para TOP Coligações no período.")
 
@@ -1081,7 +1104,12 @@ elif opcao == "🟠 Kenvue Perfumaria":
                 fig_vol.update_layout(title='Volume de Vendas Kenvue por Coligação (Perfumaria)',
                                       barmode='group', yaxis_title='Valor de Vendas', xaxis_title='Coligação')
                 st.plotly_chart(fig_vol, use_container_width=True)
-                st.dataframe(df_vol_colig, use_container_width=True, hide_index=True)
+
+                # Tabela formatada
+                df_vol_display = df_vol_colig.copy()
+                df_vol_display['Mês Anterior'] = df_vol_display['Mês Anterior'].apply(formatar_numero_br)
+                df_vol_display['Mês Atual'] = df_vol_display['Mês Atual'].apply(formatar_numero_br)
+                st.dataframe(df_vol_display, use_container_width=True, hide_index=True)
 
             # Listas Chegamos / Não Chegamos
             clientes_nao_atendidos = [c for c in df_perfumarias_ativas['codigo_cliente'].unique()
