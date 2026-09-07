@@ -7,6 +7,7 @@ from io import BytesIO
 from zoneinfo import ZoneInfo
 import unicodedata
 import re
+from urllib.parse import quote
 
 # ============================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -51,11 +52,11 @@ def load_data():
     url_base = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet="
 
     try:
-        df_base = pd.read_csv(url_base + "BASE")
-        df_bi = pd.read_csv(url_base + "BI")       # <-- Aba BI (renomeada de BI_Teste)
-        df_fabricantes = pd.read_csv(url_base + "FABRICANTE")
-        df_vendedores = pd.read_csv(url_base + "VENDEDORES")
-        df_meta_kenvue = pd.read_csv(url_base + "Meta Kenvue")
+        df_base = pd.read_csv(url_base + quote("BASE"))
+        df_bi = pd.read_csv(url_base + quote("BI"))
+        df_fabricantes = pd.read_csv(url_base + quote("FABRICANTE"))
+        df_vendedores = pd.read_csv(url_base + quote("VENDEDORES"))
+        df_meta_kenvue = pd.read_csv(url_base + quote("Meta Kenvue"))  # ← Corrigido com quote
     except Exception as e:
         st.error(f"Erro ao carregar dados: {str(e)}")
         st.stop()
