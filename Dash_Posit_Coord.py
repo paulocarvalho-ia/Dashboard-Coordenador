@@ -936,8 +936,8 @@ elif opcao == "🟠 Kenvue Perfumaria":
             st.markdown("**Meta por Coordenador**")
             st.dataframe(coord_group, use_container_width=True, hide_index=True)
 
-            # Volume de Vendas por Coligação
-            st.markdown("**Volume de Vendas por Coligação (Perfumaria)**")
+            # Volume de Vendas por Coligação (somente Kenvue)
+            st.markdown("**Volume de Vendas por Coligação (Perfumaria - Kenvue)**")
             if mes_selecionado != "Todos":
                 mes_num = int(mes_selecionado.split(' - ')[0])
                 anos_do_mes = df_historico[df_historico['MŒs'] == mes_num]['Ano'].unique()
@@ -957,7 +957,12 @@ elif opcao == "🟠 Kenvue Perfumaria":
                     ano_ant = ano_atual
                 mes_ant_str = f"{ano_ant}-{mes_ant_num:02d}"
 
-                df_perf_vendas = df_historico[df_historico['Canal'] == 'PERFUMARIA'].copy()
+                # ✅ Correção: agora filtra apenas Kenvue e Perfumaria
+                df_perf_vendas = df_historico[
+                    (df_historico['Canal'] == 'PERFUMARIA') & 
+                    (df_historico['Nome_Fabricante'] == 'KENVUE')
+                ].copy()
+
                 df_vendas_mes_atual = df_perf_vendas[df_perf_vendas['MŒs_Ano'] == mes_atual_str]
                 df_vendas_mes_ant = df_perf_vendas[df_perf_vendas['MŒs_Ano'] == mes_ant_str]
 
@@ -980,7 +985,7 @@ elif opcao == "🟠 Kenvue Perfumaria":
                                          name='Mês Anterior', marker_color='#FFA000'))
                 fig_vol.add_trace(go.Bar(x=df_vol_colig['Coligação'], y=df_vol_colig['Mês Atual'],
                                          name='Mês Atual', marker_color='#2E8B57'))
-                fig_vol.update_layout(title='Volume de Vendas por Coligação (Perfumaria)',
+                fig_vol.update_layout(title='Volume de Vendas Kenvue por Coligação (Perfumaria)',
                                       barmode='group', yaxis_title='Valor de Vendas', xaxis_title='Coligação')
                 st.plotly_chart(fig_vol, use_container_width=True)
                 st.dataframe(df_vol_colig, use_container_width=True, hide_index=True)
@@ -1016,7 +1021,6 @@ elif opcao == "🟠 Kenvue Perfumaria":
                 df_nao.columns = ['Código', 'Nome', 'Município', 'Coligação', 'Vendedor']
                 st.dataframe(df_nao, use_container_width=True, hide_index=True)
 
-            # Downloads das metas
             output_kenv = BytesIO()
             with pd.ExcelWriter(output_kenv, engine='openpyxl') as writer:
                 df_ken_vend.to_excel(writer, index=False, sheet_name='Meta Kenvue Vendedor')
