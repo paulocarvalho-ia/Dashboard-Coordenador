@@ -134,7 +134,6 @@ def load_data():
             bi_rename[col] = 'Linha_Produto'
         elif 'categoria' in col_norm:
             bi_rename[col] = 'Categoria'
-        # ✅ Detecta "Valor Venda" ou "Valor das Vendas"
         elif 'valor' in col_norm and ('venda' in col_norm or 'vendas' in col_norm):
             bi_rename[col] = 'Valor_Vendas'
 
@@ -160,21 +159,17 @@ def load_data():
 
     # ✅ Converter Valor_Vendas para numérico (tratando formatos)
     if 'Valor_Vendas' in df_bi.columns:
-        # Função auxiliar para converter mantendo formato brasileiro ou americano
         def converter_valor(valor):
             if pd.isna(valor):
                 return 0.0
             s = str(valor).strip().replace('R$', '').replace(' ', '')
             if s == '':
                 return 0.0
-            # Se contém vírgula, assume formato brasileiro: troca ponto por vazio e vírgula por ponto
             if ',' in s:
                 s = s.replace('.', '').replace(',', '.')
-            # Se não contém vírgula, o ponto pode ser decimal ou milhar; assumimos que é decimal se houver apenas um ponto
             elif '.' in s:
-                # Se houver mais de um ponto, é milhar, remove; caso contrário, mantém
                 if s.count('.') == 1:
-                    pass  # já é decimal
+                    pass
                 else:
                     s = s.replace('.', '')
             try:
@@ -546,6 +541,23 @@ if opcao == "🏠 Visão Geral":
     )
     st.plotly_chart(fig, use_container_width=True)
 
+    if vendedor_selecionado != "Todos":
+        total_clientes_base = df_base[df_base['nome_vendedor_base'] == vendedor_selecionado]['codigo_cliente'].nunique()
+    elif coordenador_selecionado != "Todos":
+        vendedores_do_coord = df_base[df_base['Nome_Coordenador'] == coordenador_selecionado]['nome_vendedor_base'].unique()
+        total_clientes_base = df_base[df_base['nome_vendedor_base'].isin(vendedores_do_coord)]['codigo_cliente'].nunique()
+    else:
+        total_clientes_base = df_base['codigo_cliente'].nunique()
+
+    total_positivados = len(df_filtrado[df_filtrado['Nome_Fabricante'].notna()]['codigo_cliente'].unique())
+    pct_total = (total_positivados / total_clientes_base * 100) if total_clientes_base > 0 else 0
+
+    st.subheader("📋 Carteira Total")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Clientes na Carteira", total_clientes_base)
+    col2.metric("Clientes Positivados", total_positivados)
+    col3.metric("% Positivação (Carteira Total)", f"{pct_total:.1f}%")
+
 # ============================================================
 # PÁGINA: PERFORMANCE POR VENDEDOR
 # ============================================================
@@ -752,7 +764,6 @@ elif opcao == "🟢 Softys Falcon":
 
         ytd_total = df_softys_ano['codigo_cliente'].nunique()
 
-        # Gráfico mensal + YTD
         df_mensal_softys = monthly_totals[['Mês', 'Clientes']].copy()
         df_mensal_softys['Rótulo'] = df_mensal_softys['Mês'].apply(formatar_mes_rotulo)
 
@@ -783,7 +794,6 @@ elif opcao == "🟢 Softys Falcon":
         )
         st.plotly_chart(fig_softys, use_container_width=True)
 
-        # Tabela mensal por categoria
         pivot_mensal = df_softys_ano.pivot_table(index='Categoria', columns='MŒs_Ano', 
                                                   values='codigo_cliente', aggfunc='nunique', fill_value=0)
         pivot_mensal = pivot_mensal.reindex(columns=meses_ano, fill_value=0)
@@ -814,9 +824,7 @@ elif opcao == "🟢 Softys Falcon":
                                file_name=f'softys_mensal_{datetime.now().strftime("%Y%m%d")}.pdf',
                                mime='application/pdf', use_container_width=True)
 
-        # ============================================================
         # TOP 10 COLIGAÇÕES (MÊS ATUAL VS MÉDIA 6M)
-        # ============================================================
         st.markdown("**TOP 10 Coligações - Mês Atual vs Média 6 Meses Anteriores**")
 
         if mes_selecionado != "Todos":
@@ -834,7 +842,6 @@ elif opcao == "🟢 Softys Falcon":
                 mes_atual_str = None
 
         if mes_atual_str:
-            # Gerar lista dos 6 meses anteriores
             meses_6m = []
             for i in range(1, 7):
                 mes = mes_num - i
@@ -855,7 +862,6 @@ elif opcao == "🟢 Softys Falcon":
                 vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
                 df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
             else:
-                # Fallback: contar clientes únicos
                 vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
                 vendas_mes.columns = ['Coligação', 'Mês Atual']
                 vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
@@ -866,17 +872,15 @@ elif opcao == "🟢 Softys Falcon":
             df_top = df_top.sort_values('Mês Atual', ascending=False).head(10)
 
             if not df_top.empty:
-                # Calcular variação percentual
                 df_top['Variação %'] = ((df_top['Mês Atual'] / df_top['Média 6M']) - 1) * 100
                 df_top['Variação %'] = df_top['Variação %'].round(1).fillna(0)
 
-                # Criar cópia formatada para exibição
                 df_top_display = df_top.copy()
                 df_top_display['Mês Atual'] = df_top_display['Mês Atual'].apply(formatar_numero_br)
                 df_top_display['Média 6M'] = df_top_display['Média 6M'].apply(formatar_numero_br)
                 df_top_display['Variação %'] = df_top_display['Variação %'].apply(lambda x: f"{x:.1f}%".replace('.', ','))
 
-                # Adicionar linha de total
+                # Adicionar linha de TOTAL
                 total_mes_atual = df_top['Mês Atual'].sum()
                 total_media_6m = df_top['Média 6M'].sum()
                 if total_media_6m > 0:
@@ -893,7 +897,6 @@ elif opcao == "🟢 Softys Falcon":
                 }
                 df_top_display = pd.concat([df_top_display, pd.DataFrame([total_row])], ignore_index=True)
 
-                # Gráfico (usar valores numéricos originais)
                 fig_top = go.Figure()
                 fig_top.add_trace(go.Bar(
                     x=df_top['Coligação'],
@@ -919,14 +922,11 @@ elif opcao == "🟢 Softys Falcon":
                 )
                 st.plotly_chart(fig_top, use_container_width=True)
 
-                # Exibir tabela com total
                 st.dataframe(df_top_display, use_container_width=True, hide_index=True)
             else:
                 st.info("Sem dados para TOP Coligações no período.")
 
-        # ============================================================
         # BATALHA NAVAL SOFTYS
-        # ============================================================
         st.markdown("**Batalha Naval Softys Falcon — Clientes que compraram**")
         df_softys_clientes = df_softys_ano[['codigo_cliente', 'nome_cliente', 'Municipio', 
                                             'Cliente_Coligacao', 'nome_vendedor', 'Categoria']].drop_duplicates()
