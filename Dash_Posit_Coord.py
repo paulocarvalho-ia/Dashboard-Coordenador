@@ -706,7 +706,7 @@ elif opcao == "🔀 Oportunidades Cruzadas":
         st.info("Selecione ao menos uma indústria em cada lista para visualizar as oportunidades cruzadas.")
 
 # ============================================================
-# PÁGINA: SOFTYS FALCON
+# PÁGINA: SOFTYS FALCON (COM TOP 10 COLIGAÇÕES)
 # ============================================================
 elif opcao == "🟢 Softys Falcon":
     df_softys = df_relatorio_base[df_relatorio_base['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
@@ -732,6 +732,7 @@ elif opcao == "🟢 Softys Falcon":
 
         ytd_total = df_softys_ano['codigo_cliente'].nunique()
 
+        # Gráfico mensal + YTD
         df_mensal_softys = monthly_totals[['Mês', 'Clientes']].copy()
         df_mensal_softys['Rótulo'] = df_mensal_softys['Mês'].apply(formatar_mes_rotulo)
 
@@ -762,6 +763,7 @@ elif opcao == "🟢 Softys Falcon":
         )
         st.plotly_chart(fig_softys, use_container_width=True)
 
+        # Tabela mensal por categoria
         pivot_mensal = df_softys_ano.pivot_table(index='Categoria', columns='MŒs_Ano', 
                                                   values='codigo_cliente', aggfunc='nunique', fill_value=0)
         pivot_mensal = pivot_mensal.reindex(columns=meses_ano, fill_value=0)
@@ -778,6 +780,7 @@ elif opcao == "🟢 Softys Falcon":
         st.markdown("**Positivação por Categoria (todos os meses do ano + YTD)**")
         st.dataframe(tabela, use_container_width=True, hide_index=True)
 
+        # Download da tabela mensal
         output_mensal = BytesIO()
         with pd.ExcelWriter(output_mensal, engine='openpyxl') as writer:
             tabela.to_excel(writer, index=False, sheet_name='Softys Mensal')
@@ -792,6 +795,93 @@ elif opcao == "🟢 Softys Falcon":
                                file_name=f'softys_mensal_{datetime.now().strftime("%Y%m%d")}.pdf',
                                mime='application/pdf', use_container_width=True)
 
+        # ============================================================
+        # TOP 10 COLIGAÇÕES (MÊS ATUAL VS MÉDIA 6M)
+        # ============================================================
+        st.markdown("**TOP 10 Coligações - Mês Atual vs Média 6 Meses Anteriores**")
+
+        # Determinar mês atual e meses anteriores
+        if mes_selecionado != "Todos":
+            mes_num = int(mes_selecionado.split(' - ')[0])
+            anos_do_mes = df_softys[df_softys['MŒs'] == mes_num]['Ano'].unique()
+            ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
+            mes_atual_str = f"{ano_ref}-{mes_num:02d}"
+        else:
+            if not df_softys.empty:
+                ultimo_periodo = df_softys['MŒs_Ano'].max()
+                mes_atual_str = ultimo_periodo
+                ano_ref = int(ultimo_periodo.split('-')[0])
+                mes_num = int(ultimo_periodo.split('-')[1])
+            else:
+                mes_atual_str = None
+
+        if mes_atual_str:
+            # Gerar lista dos 6 meses anteriores
+            meses_6m = []
+            for i in range(1, 7):
+                mes = mes_num - i
+                ano = ano_ref
+                while mes <= 0:
+                    mes += 12
+                    ano -= 1
+                meses_6m.append(f"{ano}-{mes:02d}")
+
+            df_softys_top_mes = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]
+            df_softys_top_6m = df_softys[df_softys['MŒs_Ano'].isin(meses_6m)]
+
+            if 'Valor_Vendas' in df_softys.columns:
+                # Usar soma de Valor_Vendas
+                vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+                vendas_mes.columns = ['Coligação', 'Mês Atual']
+                vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+                vendas_6m_total.columns = ['Coligação', 'Total 6M']
+                vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
+                df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
+            else:
+                # Fallback: contar clientes únicos no mês e média nos 6 meses
+                vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
+                vendas_mes.columns = ['Coligação', 'Mês Atual']
+                vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
+                vendas_6m_total.columns = ['Coligação', 'Total 6M']
+                vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
+                df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
+
+            # Selecionar top 10 por Mês Atual (ou, se não, pela média)
+            df_top = df_top.sort_values('Mês Atual', ascending=False).head(10)
+
+            if not df_top.empty:
+                fig_top = go.Figure()
+                fig_top.add_trace(go.Bar(
+                    x=df_top['Coligação'],
+                    y=df_top['Mês Atual'],
+                    name='Mês Atual',
+                    marker_color='#2E8B57',
+                    text=df_top['Mês Atual'].round(2),
+                    textposition='outside'
+                ))
+                fig_top.add_trace(go.Bar(
+                    x=df_top['Coligação'],
+                    y=df_top['Média 6M'],
+                    name='Média 6M',
+                    marker_color='#FFA000',
+                    text=df_top['Média 6M'].round(2),
+                    textposition='outside'
+                ))
+                fig_top.update_layout(
+                    title='TOP 10 Coligações - Mês Atual vs Média 6 Meses Anteriores',
+                    barmode='group',
+                    yaxis_title='Valor de Vendas',
+                    xaxis_title='Coligação'
+                )
+                st.plotly_chart(fig_top, use_container_width=True)
+
+                st.dataframe(df_top, use_container_width=True, hide_index=True)
+            else:
+                st.info("Sem dados para TOP Coligações no período.")
+
+        # ============================================================
+        # BATALHA NAVAL SOFTYS
+        # ============================================================
         st.markdown("**Batalha Naval Softys Falcon — Clientes que compraram**")
         df_softys_clientes = df_softys_ano[['codigo_cliente', 'nome_cliente', 'Municipio', 
                                             'Cliente_Coligacao', 'nome_vendedor', 'Categoria']].drop_duplicates()
@@ -829,12 +919,10 @@ elif opcao == "🟢 Softys Falcon":
 elif opcao == "🟠 Kenvue Perfumaria":
     st.subheader("🟠 Foco Estratégico: Kenvue no Canal Perfumaria")
 
-    # Vendedores elegíveis para vender KENVUE (pasta amarela ou mista) E presentes nos filtros principais
     vendedores_kenvue = [v for v in df_base['nome_vendedor_base'].unique()
                          if vendedor_pasta.get(v) in ['PA', 'PVA']
                          and v in df_historico['nome_vendedor'].unique()]
 
-    # Perfumarias ativas na janela móvel atendidas por vendedores elegíveis
     df_perfumarias_ativas = df_historico_janela[
         (df_historico_janela['Canal'] == 'PERFUMARIA') &
         (df_historico_janela['nome_vendedor'].isin(vendedores_kenvue))
@@ -855,7 +943,6 @@ elif opcao == "🟠 Kenvue Perfumaria":
             df_metas = df_metas.rename(columns={col_vend_meta: 'Vendedor', col_valor_meta: 'Meta'})
             df_metas['Vendedor'] = df_metas['Vendedor'].astype(str).str.strip()
             df_metas['Meta'] = pd.to_numeric(df_metas['Meta'], errors='coerce').fillna(0)
-            # Filtra apenas vendedores elegíveis e presentes nos filtros principais
             df_metas = df_metas[df_metas['Vendedor'].isin(vendedores_kenvue)]
         else:
             df_metas = pd.DataFrame(columns=['Vendedor', 'Meta'])
@@ -912,11 +999,10 @@ elif opcao == "🟠 Kenvue Perfumaria":
             st.markdown("**Meta por Vendedor**")
             st.dataframe(df_ken_vend, use_container_width=True, hide_index=True)
 
-            # Visão por Coordenador (respeitando filtros)
+            # Visão por Coordenador
             df_vend_coord = df_base[['nome_vendedor_base', 'Nome_Coordenador']].drop_duplicates()
             df_vend_coord.columns = ['Vendedor', 'Coordenador']
             df_vend_coord['Vendedor'] = df_vend_coord['Vendedor'].astype(str).str.strip()
-            # Filtra coordenadores apenas dos vendedores presentes
             df_vend_coord = df_vend_coord[df_vend_coord['Vendedor'].isin(vendedores_kenvue)]
 
             df_meta_coord = df_meta_vendedor.merge(df_vend_coord, on='Vendedor', how='left')
