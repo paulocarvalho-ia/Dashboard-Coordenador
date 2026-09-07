@@ -52,9 +52,10 @@ def load_data():
 
     try:
         df_base = pd.read_csv(url_base + "BASE")
-        df_bi = pd.read_csv(url_base + "BI")      # <-- Alterado de BI_Teste para BI
+        df_bi = pd.read_csv(url_base + "BI")       # <-- Aba BI (renomeada de BI_Teste)
         df_fabricantes = pd.read_csv(url_base + "FABRICANTE")
         df_vendedores = pd.read_csv(url_base + "VENDEDORES")
+        df_meta_kenvue = pd.read_csv(url_base + "Meta Kenvue")
     except Exception as e:
         st.error(f"Erro ao carregar dados: {str(e)}")
         st.stop()
@@ -181,10 +182,10 @@ def load_data():
     fabricante_pasta = dict(zip(df_fabricantes['Nome Fabricante'], df_fabricantes['Pasta']))
     vendedor_pasta = dict(zip(df_vendedores['Vendedor'], df_vendedores['Pasta']))
 
-    return df_base, df_bi, df_merged, data_dados, fabricante_pasta, vendedor_pasta
+    return df_base, df_bi, df_merged, df_meta_kenvue, data_dados, fabricante_pasta, vendedor_pasta
 
 # Carregar dados
-df_base, df_bi, df_merged, data_dados, fabricante_pasta, vendedor_pasta = load_data()
+df_base, df_bi, df_merged, df_meta_kenvue, data_dados, fabricante_pasta, vendedor_pasta = load_data()
 
 TODAS_INDUSTRIAS = sorted([i for i in df_bi['Nome_Fabricante'].dropna().unique() if str(i).strip() != ''])
 
@@ -838,23 +839,40 @@ elif opcao == "🟢 Softys Falcon":
         st.warning("Nenhum dado da Softys Falcon para os filtros atuais.")
 
 # ============================================================
-# PÁGINA: KENVUE PERFUMARIA (CORRIGIDA)
+# PÁGINA: KENVUE PERFUMARIA (COM METAS)
 # ============================================================
 elif opcao == "🟠 Kenvue Perfumaria":
+    st.subheader("🟠 Foco Estratégico: Kenvue no Canal Perfumaria")
+
+    # Vendedores elegíveis para vender KENVUE (pasta amarela ou mista)
     vendedores_kenvue = [v for v in df_base['nome_vendedor_base'].unique()
                          if vendedor_pasta.get(v) in ['PA', 'PVA']]
 
+    # Perfumarias ativas na janela móvel atendidas por vendedores elegíveis
     df_perfumarias_ativas = df_historico_janela[
         (df_historico_janela['Canal'] == 'PERFUMARIA') &
         (df_historico_janela['nome_vendedor'].isin(vendedores_kenvue))
     ].copy()
 
     if not df_perfumarias_ativas.empty:
+        # Vendas de Kenvue no mês atual, apenas de vendedores elegíveis
         df_kenvue_mes = df_filtrado[
             (df_filtrado['Nome_Fabricante'] == 'KENVUE') &
             (df_filtrado['Canal'] == 'PERFUMARIA') &
             (df_filtrado['nome_vendedor'].isin(vendedores_kenvue))
         ].copy()
+
+        # Carregar metas da aba Meta Kenvue
+        df_metas = df_meta_kenvue.copy()
+        df_metas.columns = [str(c).strip() for c in df_metas.columns]
+        col_vend_meta = next((c for c in df_metas.columns if 'vendedor' in c.lower()), None)
+        col_valor_meta = next((c for c in df_metas.columns if 'meta' in c.lower()), None)
+        if col_vend_meta and col_valor_meta:
+            df_metas = df_metas.rename(columns={col_vend_meta: 'Vendedor', col_valor_meta: 'Meta'})
+            df_metas['Meta'] = pd.to_numeric(df_metas['Meta'], errors='coerce').fillna(0)
+        else:
+            st.warning("Não foi possível identificar as colunas de vendedor e meta na aba 'Meta Kenvue'.")
+            df_metas = pd.DataFrame(columns=['Vendedor', 'Meta'])
 
         if not df_kenvue_mes.empty:
             clientes_kenvue_mes = df_kenvue_mes['codigo_cliente'].unique()
@@ -862,10 +880,65 @@ elif opcao == "🟠 Kenvue Perfumaria":
             atendidos = len(clientes_kenvue_mes)
             pct_atendido = (atendidos / total_perfumarias_ativas * 100) if total_perfumarias_ativas > 0 else 0
 
-            st.subheader("🟠 Foco Estratégico: Kenvue no Canal Perfumaria")
-            st.metric("Perfumarias Ativas (janela móvel)", total_perfumarias_ativas)
-            st.metric("Atendidas com Kenvue (mês atual)", f"{atendidos} ({pct_atendido:.1f}%)")
-            st.progress(min(pct_atendido / 100, 1.0), text="Meta: 50%")
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Perfumarias Ativas (janela móvel)", total_perfumarias_ativas)
+            col_m2.metric("Atendidas com Kenvue (mês atual)", f"{atendidos} ({pct_atendido:.1f}%)")
+            col_m3.metric("Meta Total", f"{int(df_metas['Meta'].sum()) if not df_metas.empty else 0}")
+
+            realizado_por_vendedor = df_kenvue_mes.groupby('nome_vendedor')['codigo_cliente'].nunique().reset_index()
+            realizado_por_vendedor.columns = ['Vendedor', 'Realizado']
+
+            df_meta_vendedor = df_metas.merge(realizado_por_vendedor, on='Vendedor', how='left')
+            df_meta_vendedor['Realizado'] = df_meta_vendedor['Realizado'].fillna(0).astype(int)
+            df_meta_vendedor['Atingimento %'] = (df_meta_vendedor['Realizado'] / df_meta_vendedor['Meta'] * 100).round(1)
+            df_meta_vendedor['Atingimento %'] = df_meta_vendedor['Atingimento %'].fillna(0)
+            df_meta_vendedor = df_meta_vendedor.sort_values('Atingimento %', ascending=False)
+
+            st.markdown("**Metas e Atingimento por Vendedor**")
+            st.dataframe(df_meta_vendedor, use_container_width=True, hide_index=True)
+
+            col_g1, col_g2 = st.columns(2)
+
+            with col_g1:
+                fig_meta_bar = go.Figure()
+                fig_meta_bar.add_trace(go.Bar(
+                    x=df_meta_vendedor['Vendedor'],
+                    y=df_meta_vendedor['Meta'],
+                    name='Meta',
+                    marker_color='#1a3a4a',
+                    text=df_meta_vendedor['Meta'],
+                    textposition='outside'
+                ))
+                fig_meta_bar.add_trace(go.Bar(
+                    x=df_meta_vendedor['Vendedor'],
+                    y=df_meta_vendedor['Realizado'],
+                    name='Realizado',
+                    marker_color='#2E8B57',
+                    text=df_meta_vendedor['Realizado'],
+                    textposition='outside'
+                ))
+                fig_meta_bar.update_layout(
+                    title='Meta vs Realizado por Vendedor',
+                    barmode='group',
+                    yaxis_title='Número de Perfumarias',
+                    xaxis_title=''
+                )
+                st.plotly_chart(fig_meta_bar, use_container_width=True)
+
+            with col_g2:
+                fig_meta_pct = px.bar(
+                    df_meta_vendedor,
+                    x='Vendedor',
+                    y='Atingimento %',
+                    title='% de Atingimento da Meta',
+                    text='Atingimento %',
+                    color='Atingimento %',
+                    color_continuous_scale='Greens'
+                )
+                fig_meta_pct.add_hline(y=100, line_dash="dash", line_color="red", annotation_text="Meta 100%")
+                fig_meta_pct.update_traces(textposition='outside')
+                fig_meta_pct.update_layout(yaxis_range=[0, max(120, df_meta_vendedor['Atingimento %'].max()*1.1)])
+                st.plotly_chart(fig_meta_pct, use_container_width=True)
 
             clientes_nao_atendidos = [c for c in df_perfumarias_ativas['codigo_cliente'].unique()
                                       if c not in clientes_kenvue_mes]
@@ -918,18 +991,20 @@ elif opcao == "🟠 Kenvue Perfumaria":
                                        file_name=f'kenvue_nao_chegamos_{datetime.now().strftime("%Y%m%d")}.pdf',
                                        mime='application/pdf', use_container_width=True)
 
-            st.markdown("**Meta por Vendedor (50% das perfumarias ativas)**")
+            st.markdown("**Meta por Vendedor (detalhada)**")
             vendedores_perf = df_perfumarias_ativas['nome_vendedor'].dropna().unique()
             lista_ken = []
             for vend in vendedores_perf:
                 total_vend = df_perfumarias_ativas[df_perfumarias_ativas['nome_vendedor'] == vend]['codigo_cliente'].nunique()
                 atend_vend = df_kenvue_mes[df_kenvue_mes['nome_vendedor'] == vend]['codigo_cliente'].nunique()
-                pct_vend = (atend_vend / total_vend * 100) if total_vend > 0 else 0
+                meta_vend = df_metas[df_metas['Vendedor'] == vend]['Meta'].sum() if not df_metas.empty else 0
+                pct_vend = (atend_vend / meta_vend * 100) if meta_vend > 0 else 0
                 lista_ken.append({
                     'Vendedor': vend,
                     'Perfumarias Ativas': total_vend,
+                    'Meta': meta_vend,
                     'Atendidas Kenvue': atend_vend,
-                    '% Atendido': round(pct_vend, 1)
+                    '% Atingimento': round(pct_vend, 1)
                 })
             df_ken_vend = pd.DataFrame(lista_ken)
             st.dataframe(df_ken_vend, use_container_width=True, hide_index=True)
