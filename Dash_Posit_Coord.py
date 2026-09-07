@@ -714,17 +714,18 @@ elif opcao == "🟢 Softys Falcon":
     if not df_softys.empty:
         st.subheader("🟢 Foco Estratégico: Softys Falcon")
 
+        # Determinação do mês atual e ano de referência (mesma lógica da Visão Geral)
         if mes_selecionado != "Todos":
             mes_num = int(mes_selecionado.split(' - ')[0])
             anos_do_mes = df_softys[df_softys['MŒs'] == mes_num]['Ano'].unique()
-            ano_atual = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
+            ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
             mes_atual_num = mes_num
         else:
-            ano_atual = df_softys['Ano'].max()
-            mes_atual_num = df_softys['MŒs'].max()
+            ano_ref = df_softys['Ano'].max()
+            mes_atual_num = df_softys.loc[df_softys['Ano'] == ano_ref, 'MŒs'].max()
 
-        meses_ano = [f"{ano_atual}-{m:02d}" for m in range(1, mes_atual_num + 1)]
-        df_softys_ano = df_softys[(df_softys['Ano'] == ano_atual) & (df_softys['MŒs'] <= mes_atual_num)]
+        meses_ano = [f"{ano_ref}-{m:02d}" for m in range(1, mes_atual_num + 1)]
+        df_softys_ano = df_softys[(df_softys['Ano'] == ano_ref) & (df_softys['MŒs'] <= mes_atual_num)]
 
         monthly_totals = df_softys_ano.groupby('MŒs_Ano')['codigo_cliente'].nunique().reset_index()
         monthly_totals.columns = ['Mês', 'Clientes']
@@ -799,108 +800,102 @@ elif opcao == "🟢 Softys Falcon":
         # ============================================================
         st.markdown("**TOP 10 Coligações - Mês Atual vs Média 6 Meses Anteriores**")
 
-        if mes_selecionado != "Todos":
-            mes_num = int(mes_selecionado.split(' - ')[0])
-            anos_do_mes = df_softys[df_softys['MŒs'] == mes_num]['Ano'].unique()
-            ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
-            mes_atual_str = f"{ano_ref}-{mes_num:02d}"
+        mes_atual_str = f"{ano_ref}-{mes_atual_num:02d}"
+
+        # (Opcional) Para diagnóstico:
+        # st.write(f"Período analisado: {mes_atual_str}")
+        # total_mes_geral = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]['Valor_Vendas'].sum()
+        # st.write(f"Soma total do mês {mes_atual_str}: {formatar_numero_br(total_mes_geral)}")
+
+        # Meses anteriores
+        meses_6m = []
+        for i in range(1, 7):
+            mes = mes_atual_num - i
+            ano = ano_ref
+            while mes <= 0:
+                mes += 12
+                ano -= 1
+            meses_6m.append(f"{ano}-{mes:02d}")
+
+        df_softys_top_mes = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]
+        df_softys_top_6m = df_softys[df_softys['MŒs_Ano'].isin(meses_6m)]
+
+        if 'Valor_Vendas' in df_softys.columns:
+            vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+            vendas_mes.columns = ['Coligação', 'Mês Atual']
+            vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+            vendas_6m_total.columns = ['Coligação', 'Total 6M']
+            vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
+            df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
         else:
-            if not df_softys.empty:
-                ultimo_periodo = df_softys['MŒs_Ano'].max()
-                mes_atual_str = ultimo_periodo
-                ano_ref = int(ultimo_periodo.split('-')[0])
-                mes_num = int(ultimo_periodo.split('-')[1])
+            # fallback
+            vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
+            vendas_mes.columns = ['Coligação', 'Mês Atual']
+            vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
+            vendas_6m_total.columns = ['Coligação', 'Total 6M']
+            vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
+            df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
+
+        df_top = df_top.sort_values('Mês Atual', ascending=False).head(10)
+
+        if not df_top.empty:
+            # Calcular variação percentual
+            df_top['Variação %'] = ((df_top['Mês Atual'] / df_top['Média 6M']) - 1) * 100
+            df_top['Variação %'] = df_top['Variação %'].round(1).fillna(0)
+
+            # Criar cópia formatada para exibição
+            df_top_display = df_top.copy()
+            df_top_display['Mês Atual'] = df_top_display['Mês Atual'].apply(formatar_numero_br)
+            df_top_display['Média 6M'] = df_top_display['Média 6M'].apply(formatar_numero_br)
+            df_top_display['Variação %'] = df_top_display['Variação %'].apply(lambda x: f"{x:.1f}%".replace('.', ','))
+
+            # Adicionar linha de total
+            total_mes_atual = df_top['Mês Atual'].sum()
+            total_media_6m = df_top['Média 6M'].sum()
+            if total_media_6m > 0:
+                total_variacao = ((total_mes_atual / total_media_6m) - 1) * 100
             else:
-                mes_atual_str = None
+                total_variacao = 0
+            total_variacao_fmt = f"{total_variacao:.1f}%".replace('.', ',')
 
-        if mes_atual_str:
-            meses_6m = []
-            for i in range(1, 7):
-                mes = mes_num - i
-                ano = ano_ref
-                while mes <= 0:
-                    mes += 12
-                    ano -= 1
-                meses_6m.append(f"{ano}-{mes:02d}")
+            total_row = {
+                'Coligação': 'TOTAL',
+                'Mês Atual': formatar_numero_br(total_mes_atual),
+                'Média 6M': formatar_numero_br(total_media_6m),
+                'Variação %': total_variacao_fmt
+            }
+            df_top_display = pd.concat([df_top_display, pd.DataFrame([total_row])], ignore_index=True)
 
-            df_softys_top_mes = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]
-            df_softys_top_6m = df_softys[df_softys['MŒs_Ano'].isin(meses_6m)]
+            # Gráfico (usar valores numéricos originais)
+            fig_top = go.Figure()
+            fig_top.add_trace(go.Bar(
+                x=df_top['Coligação'],
+                y=df_top['Mês Atual'],
+                name='Mês Atual',
+                marker_color='#2E8B57',
+                text=df_top['Mês Atual'].apply(formatar_numero_br),
+                textposition='outside'
+            ))
+            fig_top.add_trace(go.Bar(
+                x=df_top['Coligação'],
+                y=df_top['Média 6M'],
+                name='Média 6M',
+                marker_color='#FFA000',
+                text=df_top['Média 6M'].apply(formatar_numero_br),
+                textposition='outside'
+            ))
+            fig_top.update_layout(
+                title='TOP 10 Coligações - Mês Atual vs Média 6 Meses Anteriores',
+                barmode='group',
+                yaxis_title='Valor de Vendas',
+                xaxis_title='Coligação'
+            )
+            st.plotly_chart(fig_top, use_container_width=True)
 
-            if 'Valor_Vendas' in df_softys.columns:
-                vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
-                vendas_mes.columns = ['Coligação', 'Mês Atual']
-                vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
-                vendas_6m_total.columns = ['Coligação', 'Total 6M']
-                vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
-                df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
-            else:
-                vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
-                vendas_mes.columns = ['Coligação', 'Mês Atual']
-                vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
-                vendas_6m_total.columns = ['Coligação', 'Total 6M']
-                vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
-                df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
-
-            df_top = df_top.sort_values('Mês Atual', ascending=False).head(10)
-
-            if not df_top.empty:
-                # Calcular variação percentual
-                df_top['Variação %'] = ((df_top['Mês Atual'] / df_top['Média 6M']) - 1) * 100
-                df_top['Variação %'] = df_top['Variação %'].round(1).fillna(0)
-
-                # Criar cópia formatada para exibição
-                df_top_display = df_top.copy()
-                df_top_display['Mês Atual'] = df_top_display['Mês Atual'].apply(formatar_numero_br)
-                df_top_display['Média 6M'] = df_top_display['Média 6M'].apply(formatar_numero_br)
-                df_top_display['Variação %'] = df_top_display['Variação %'].apply(lambda x: f"{x:.1f}%".replace('.', ','))
-
-                # Adicionar linha de total
-                total_mes_atual = df_top['Mês Atual'].sum()
-                total_media_6m = df_top['Média 6M'].sum()
-                if total_media_6m > 0:
-                    total_variacao = ((total_mes_atual / total_media_6m) - 1) * 100
-                else:
-                    total_variacao = 0
-                total_variacao_fmt = f"{total_variacao:.1f}%".replace('.', ',')
-
-                total_row = {
-                    'Coligação': 'TOTAL',
-                    'Mês Atual': formatar_numero_br(total_mes_atual),
-                    'Média 6M': formatar_numero_br(total_media_6m),
-                    'Variação %': total_variacao_fmt
-                }
-                df_top_display = pd.concat([df_top_display, pd.DataFrame([total_row])], ignore_index=True)
-
-                # Gráfico (usar valores numéricos originais)
-                fig_top = go.Figure()
-                fig_top.add_trace(go.Bar(
-                    x=df_top['Coligação'],
-                    y=df_top['Mês Atual'],
-                    name='Mês Atual',
-                    marker_color='#2E8B57',
-                    text=df_top['Mês Atual'].apply(formatar_numero_br),
-                    textposition='outside'
-                ))
-                fig_top.add_trace(go.Bar(
-                    x=df_top['Coligação'],
-                    y=df_top['Média 6M'],
-                    name='Média 6M',
-                    marker_color='#FFA000',
-                    text=df_top['Média 6M'].apply(formatar_numero_br),
-                    textposition='outside'
-                ))
-                fig_top.update_layout(
-                    title='TOP 10 Coligações - Mês Atual vs Média 6 Meses Anteriores',
-                    barmode='group',
-                    yaxis_title='Valor de Vendas',
-                    xaxis_title='Coligação'
-                )
-                st.plotly_chart(fig_top, use_container_width=True)
-
-                # Exibir tabela com total
-                st.dataframe(df_top_display, use_container_width=True, hide_index=True)
-            else:
-                st.info("Sem dados para TOP Coligações no período.")
+            # Exibir tabela com total
+            st.dataframe(df_top_display, use_container_width=True, hide_index=True)
+        else:
+            st.info("Sem dados para TOP Coligações no período.")
 
         # ============================================================
         # BATALHA NAVAL SOFTYS
