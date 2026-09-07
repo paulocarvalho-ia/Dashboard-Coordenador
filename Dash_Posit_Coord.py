@@ -869,6 +869,24 @@ elif opcao == "🟢 Softys Falcon":
                 df_top_display = df_top.copy()
                 df_top_display['Mês Atual'] = df_top_display['Mês Atual'].apply(formatar_numero_br)
                 df_top_display['Média 6M'] = df_top_display['Média 6M'].apply(formatar_numero_br)
+                df_top_display['Variação %'] = df_top_display['Variação %'].apply(lambda x: f"{x:.1f}%".replace('.', ','))
+
+                # Adicionar linha de total
+                total_mes_atual = df_top['Mês Atual'].sum()
+                total_media_6m = df_top['Média 6M'].sum()
+                if total_media_6m > 0:
+                    total_variacao = ((total_mes_atual / total_media_6m) - 1) * 100
+                else:
+                    total_variacao = 0
+                total_variacao_fmt = f"{total_variacao:.1f}%".replace('.', ',')
+
+                total_row = {
+                    'Coligação': 'TOTAL',
+                    'Mês Atual': formatar_numero_br(total_mes_atual),
+                    'Média 6M': formatar_numero_br(total_media_6m),
+                    'Variação %': total_variacao_fmt
+                }
+                df_top_display = pd.concat([df_top_display, pd.DataFrame([total_row])], ignore_index=True)
 
                 # Gráfico (usar valores numéricos originais)
                 fig_top = go.Figure()
@@ -896,9 +914,8 @@ elif opcao == "🟢 Softys Falcon":
                 )
                 st.plotly_chart(fig_top, use_container_width=True)
 
-                # Exibir tabela com formatação e coluna de variação
-                st.dataframe(df_top_display[['Coligação', 'Mês Atual', 'Média 6M', 'Variação %']],
-                             use_container_width=True, hide_index=True)
+                # Exibir tabela com total
+                st.dataframe(df_top_display, use_container_width=True, hide_index=True)
             else:
                 st.info("Sem dados para TOP Coligações no período.")
 
