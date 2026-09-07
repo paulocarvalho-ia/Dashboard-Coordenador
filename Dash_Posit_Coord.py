@@ -830,14 +830,8 @@ elif opcao == "🟢 Softys Falcon":
         # ============================================================
         # TOP 10 COLIGAÇÕES (MÊS ATUAL VS MÉDIA 6M)
         # ============================================================
-        st.markdown("**TOP 10 Coligações - Mês Atual vs Média 6 Meses Anteriores**")
-
+        # Removido título duplicado; agora apenas o gráfico terá título.
         mes_atual_str = f"{ano_ref}-{mes_atual_num:02d}"
-
-        # (Opcional) Para diagnóstico:
-        # st.write(f"Período analisado: {mes_atual_str}")
-        # total_mes_geral = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]['Valor_Vendas'].sum()
-        # st.write(f"Soma total do mês {mes_atual_str}: {formatar_numero_br(total_mes_geral)}")
 
         # Meses anteriores
         meses_6m = []
