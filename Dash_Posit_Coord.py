@@ -526,23 +526,6 @@ if opcao == "🏠 Visão Geral":
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    if vendedor_selecionado != "Todos":
-        total_clientes_base = df_base[df_base['nome_vendedor_base'] == vendedor_selecionado]['codigo_cliente'].nunique()
-    elif coordenador_selecionado != "Todos":
-        vendedores_do_coord = df_base[df_base['Nome_Coordenador'] == coordenador_selecionado]['nome_vendedor_base'].unique()
-        total_clientes_base = df_base[df_base['nome_vendedor_base'].isin(vendedores_do_coord)]['codigo_cliente'].nunique()
-    else:
-        total_clientes_base = df_base['codigo_cliente'].nunique()
-
-    total_positivados = len(df_filtrado[df_filtrado['Nome_Fabricante'].notna()]['codigo_cliente'].unique())
-    pct_total = (total_positivados / total_clientes_base * 100) if total_clientes_base > 0 else 0
-
-    st.subheader("📋 Carteira Total")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Clientes na Carteira", total_clientes_base)
-    col2.metric("Clientes Positivados", total_positivados)
-    col3.metric("% Positivação (Carteira Total)", f"{pct_total:.1f}%")
-
 # ============================================================
 # PÁGINA: PERFORMANCE POR VENDEDOR
 # ============================================================
