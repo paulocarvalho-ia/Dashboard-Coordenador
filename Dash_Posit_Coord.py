@@ -52,7 +52,7 @@ def load_data():
 
     try:
         df_base = pd.read_csv(url_base + "BASE")
-        df_bi = pd.read_csv(url_base + "BI_Teste")
+        df_bi = pd.read_csv(url_base + "BI")      # <-- Alterado de BI_Teste para BI
         df_fabricantes = pd.read_csv(url_base + "FABRICANTE")
         df_vendedores = pd.read_csv(url_base + "VENDEDORES")
     except Exception as e:
@@ -145,7 +145,7 @@ def load_data():
                 break
 
     if 'Ano_e_Mes' not in df_bi.columns:
-        st.error("Não foi possível identificar a coluna de Ano/Mês no DataFrame BI_Teste.")
+        st.error("Não foi possível identificar a coluna de Ano/Mês no DataFrame BI.")
         st.write("Colunas disponíveis:", df_bi.columns.tolist())
         st.stop()
 
