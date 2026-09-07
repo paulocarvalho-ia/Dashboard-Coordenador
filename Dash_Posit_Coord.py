@@ -134,7 +134,8 @@ def load_data():
             bi_rename[col] = 'Linha_Produto'
         elif 'categoria' in col_norm:
             bi_rename[col] = 'Categoria'
-        elif 'valor das vendas' in col_norm:
+        # ✅ Detecta "Valor Venda" ou "Valor das Vendas"
+        elif 'valor' in col_norm and ('venda' in col_norm or 'vendas' in col_norm):
             bi_rename[col] = 'Valor_Vendas'
 
     df_bi = df_bi.rename(columns=bi_rename)
@@ -156,6 +157,12 @@ def load_data():
     df_bi['MŒs'] = df_bi['Data'].dt.month
     df_bi['Ano'] = df_bi['Data'].dt.year
     df_bi['MŒs_Ano'] = df_bi['Data'].dt.to_period('M').astype(str)
+
+    # ✅ Converter Valor_Vendas para numérico (tratando formatos)
+    if 'Valor_Vendas' in df_bi.columns:
+        df_bi['Valor_Vendas'] = df_bi['Valor_Vendas'].astype(str).str.replace('R$', '', regex=False)
+        df_bi['Valor_Vendas'] = df_bi['Valor_Vendas'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+        df_bi['Valor_Vendas'] = pd.to_numeric(df_bi['Valor_Vendas'], errors='coerce').fillna(0)
 
     # ============================================================
     # MERGE
@@ -732,7 +739,6 @@ elif opcao == "🟢 Softys Falcon":
 
         ytd_total = df_softys_ano['codigo_cliente'].nunique()
 
-        # Gráfico mensal + YTD
         df_mensal_softys = monthly_totals[['Mês', 'Clientes']].copy()
         df_mensal_softys['Rótulo'] = df_mensal_softys['Mês'].apply(formatar_mes_rotulo)
 
@@ -780,7 +786,6 @@ elif opcao == "🟢 Softys Falcon":
         st.markdown("**Positivação por Categoria (todos os meses do ano + YTD)**")
         st.dataframe(tabela, use_container_width=True, hide_index=True)
 
-        # Download da tabela mensal
         output_mensal = BytesIO()
         with pd.ExcelWriter(output_mensal, engine='openpyxl') as writer:
             tabela.to_excel(writer, index=False, sheet_name='Softys Mensal')
@@ -800,7 +805,6 @@ elif opcao == "🟢 Softys Falcon":
         # ============================================================
         st.markdown("**TOP 10 Coligações - Mês Atual vs Média 6 Meses Anteriores**")
 
-        # Determinar mês atual e meses anteriores
         if mes_selecionado != "Todos":
             mes_num = int(mes_selecionado.split(' - ')[0])
             anos_do_mes = df_softys[df_softys['MŒs'] == mes_num]['Ano'].unique()
@@ -816,7 +820,6 @@ elif opcao == "🟢 Softys Falcon":
                 mes_atual_str = None
 
         if mes_atual_str:
-            # Gerar lista dos 6 meses anteriores
             meses_6m = []
             for i in range(1, 7):
                 mes = mes_num - i
@@ -830,7 +833,6 @@ elif opcao == "🟢 Softys Falcon":
             df_softys_top_6m = df_softys[df_softys['MŒs_Ano'].isin(meses_6m)]
 
             if 'Valor_Vendas' in df_softys.columns:
-                # Usar soma de Valor_Vendas
                 vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
                 vendas_mes.columns = ['Coligação', 'Mês Atual']
                 vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
@@ -838,7 +840,6 @@ elif opcao == "🟢 Softys Falcon":
                 vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
                 df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
             else:
-                # Fallback: contar clientes únicos no mês e média nos 6 meses
                 vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
                 vendas_mes.columns = ['Coligação', 'Mês Atual']
                 vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
@@ -846,7 +847,6 @@ elif opcao == "🟢 Softys Falcon":
                 vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
                 df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
 
-            # Selecionar top 10 por Mês Atual (ou, se não, pela média)
             df_top = df_top.sort_values('Mês Atual', ascending=False).head(10)
 
             if not df_top.empty:
