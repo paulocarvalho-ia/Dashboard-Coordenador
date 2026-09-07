@@ -824,14 +824,17 @@ elif opcao == "🟢 Softys Falcon":
         st.warning("Nenhum dado da Softys Falcon para os filtros atuais.")
 
 # ============================================================
-# PÁGINA: KENVUE PERFUMARIA (COM METAS E VISÃO POR COORDENADOR)
+# PÁGINA: KENVUE PERFUMARIA (COM METAS E FILTROS CORRETOS)
 # ============================================================
 elif opcao == "🟠 Kenvue Perfumaria":
     st.subheader("🟠 Foco Estratégico: Kenvue no Canal Perfumaria")
 
+    # Vendedores elegíveis para vender KENVUE (pasta amarela ou mista) E presentes nos filtros principais
     vendedores_kenvue = [v for v in df_base['nome_vendedor_base'].unique()
-                         if vendedor_pasta.get(v) in ['PA', 'PVA']]
+                         if vendedor_pasta.get(v) in ['PA', 'PVA']
+                         and v in df_historico['nome_vendedor'].unique()]
 
+    # Perfumarias ativas na janela móvel atendidas por vendedores elegíveis
     df_perfumarias_ativas = df_historico_janela[
         (df_historico_janela['Canal'] == 'PERFUMARIA') &
         (df_historico_janela['nome_vendedor'].isin(vendedores_kenvue))
@@ -852,6 +855,8 @@ elif opcao == "🟠 Kenvue Perfumaria":
             df_metas = df_metas.rename(columns={col_vend_meta: 'Vendedor', col_valor_meta: 'Meta'})
             df_metas['Vendedor'] = df_metas['Vendedor'].astype(str).str.strip()
             df_metas['Meta'] = pd.to_numeric(df_metas['Meta'], errors='coerce').fillna(0)
+            # Filtra apenas vendedores elegíveis e presentes nos filtros principais
+            df_metas = df_metas[df_metas['Vendedor'].isin(vendedores_kenvue)]
         else:
             df_metas = pd.DataFrame(columns=['Vendedor', 'Meta'])
 
@@ -907,10 +912,12 @@ elif opcao == "🟠 Kenvue Perfumaria":
             st.markdown("**Meta por Vendedor**")
             st.dataframe(df_ken_vend, use_container_width=True, hide_index=True)
 
-            # Coordenador
+            # Visão por Coordenador (respeitando filtros)
             df_vend_coord = df_base[['nome_vendedor_base', 'Nome_Coordenador']].drop_duplicates()
             df_vend_coord.columns = ['Vendedor', 'Coordenador']
             df_vend_coord['Vendedor'] = df_vend_coord['Vendedor'].astype(str).str.strip()
+            # Filtra coordenadores apenas dos vendedores presentes
+            df_vend_coord = df_vend_coord[df_vend_coord['Vendedor'].isin(vendedores_kenvue)]
 
             df_meta_coord = df_meta_vendedor.merge(df_vend_coord, on='Vendedor', how='left')
             coord_group = df_meta_coord.groupby('Coordenador').agg(
@@ -957,7 +964,7 @@ elif opcao == "🟠 Kenvue Perfumaria":
                     ano_ant = ano_atual
                 mes_ant_str = f"{ano_ant}-{mes_ant_num:02d}"
 
-                # ✅ Correção: agora filtra apenas Kenvue e Perfumaria
+                # ✅ Filtra apenas Kenvue e Perfumaria
                 df_perf_vendas = df_historico[
                     (df_historico['Canal'] == 'PERFUMARIA') & 
                     (df_historico['Nome_Fabricante'] == 'KENVUE')
