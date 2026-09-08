@@ -1,68 +1,455 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime
+from io import BytesIO
+from zoneinfo import ZoneInfo
+import unicodedata
+import re
 from urllib.parse import quote
 
-st.set_page_config(page_title="Diagnóstico", layout="wide")
+# ============================================================
+# CONFIGURAÇÃO DA PÁGINA
+# ============================================================
+st.set_page_config(
+    page_title="Dashboard Coordenador - Batalha Naval",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
+st.markdown("""
+<style>
+    a[href*="/edit"] { display: none !important; }
+    a[href*="github.com"] { display: none !important; }
+    .stButton > button {
+        width: 100%;
+        min-height: 50px;
+        white-space: normal;
+        word-wrap: break-word;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.2;
+        padding: 8px 4px;
+        text-align: center;
+    }
+    .dataframe th, .dataframe td {
+        text-align: right !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("📊 Dashboard de Positivação e Cobertura")
+st.caption("4 Elos Distribuidora Ltda. - Centro de Custo 622")
+
+# ============================================================
+# CARREGAR DADOS (Google Sheets)
+# ============================================================
 SHEET_ID = "100LtVtmS76bT2CJd-EIb-bHTgX3F1BVm8Er5vUa-VYQ"
 
 @st.cache_data(ttl=300)
-def load_raw():
+def load_data():
     url_base = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet="
+
     try:
         df_base = pd.read_csv(url_base + quote("BASE"))
         df_bi = pd.read_csv(url_base + quote("BI"))
-        return df_base, df_bi
+        df_fabricantes = pd.read_csv(url_base + quote("FABRICANTE"))
+        df_vendedores = pd.read_csv(url_base + quote("VENDEDORES"))
+        df_meta_kenvue = pd.read_csv(url_base + quote("Meta Kenvue"))
     except Exception as e:
-        st.error(f"Erro: {e}")
-        return None, None
+        st.error(f"Erro ao carregar dados: {str(e)}")
+        st.stop()
 
-df_base, df_bi = load_raw()
+    data_dados = datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M')
 
-if df_bi is None:
-    st.stop()
+    def normalizar_texto(texto):
+        texto = unicodedata.normalize('NFKD', texto)
+        texto = texto.encode('ASCII', 'ignore').decode('ASCII')
+        texto = texto.lower().strip()
+        texto = re.sub(r'\s+', ' ', texto)
+        return texto
 
-st.subheader("Aba BI - primeiras linhas")
-st.dataframe(df_bi.head())
+    # ============ BASE ============
+    df_base.columns = [str(col).strip() for col in df_base.columns]
+    base_rename = {}
 
-st.subheader("Colunas da aba BI")
-st.write(list(df_bi.columns))
+    col_nova_coligacao = None
+    for col in df_base.columns:
+        col_norm = normalizar_texto(col)
+        if 'cliente' in col_norm and 'coligacao' in col_norm:
+            col_nova_coligacao = col
+            break
 
-st.subheader("Verificando valores de 'Valor Venda' (ou similar) e meses")
-# Tenta identificar coluna de valor e mês
-col_valor = [c for c in df_bi.columns if 'valor' in c.lower() and ('venda' in c.lower() or 'vendas' in c.lower())]
-col_mes = [c for c in df_bi.columns if 'ano' in c.lower() and 'mes' in c.lower()]
+    if col_nova_coligacao:
+        base_rename[col_nova_coligacao] = 'Cliente_Coligacao'
 
-if col_valor and col_mes:
-    col_valor = col_valor[0]
-    col_mes = col_mes[0]
-    st.write(f"Coluna valor: {col_valor}")
-    st.write(f"Coluna mês: {col_mes}")
+    for col in df_base.columns:
+        if col in base_rename:
+            continue
+        col_norm = normalizar_texto(col)
+        if 'codigo cliente' in col_norm or ('codigo' in col_norm and 'cliente' in col_norm):
+            base_rename[col] = 'codigo_cliente'
+        elif col_norm == 'cliente' or ('cliente' in col_norm and 'nome' in col_norm):
+            base_rename[col] = 'nome_cliente'
+        elif 'vendedor' in col_norm:
+            base_rename[col] = 'nome_vendedor_base'
+        elif 'coordenador' in col_norm:
+            base_rename[col] = 'Nome_Coordenador'
+        elif 'municipio' in col_norm:
+            base_rename[col] = 'Municipio'
+        elif 'canal' in col_norm:
+            base_rename[col] = 'Canal'
+        elif 'segmento' in col_norm:
+            base_rename[col] = 'Segmento'
 
-    # Filtrar Softys Falcon (se coluna fabricante existir)
-    col_fab = [c for c in df_bi.columns if 'fabricante' in c.lower()]
-    if col_fab:
-        df_softys = df_bi[df_bi[col_fab[0]].str.upper() == 'SOFTYS FALCON'].copy()
+    df_base = df_base.rename(columns=base_rename)
+
+    if 'nome_cliente' not in df_base.columns:
+        for col in df_base.columns:
+            if normalizar_texto(col) == 'cliente':
+                df_base.rename(columns={col: 'nome_cliente'}, inplace=True)
+                break
+
+    if 'Cliente_Coligacao' in df_base.columns:
+        df_base['Cliente_Coligacao'] = df_base['Cliente_Coligacao'].astype(str).str.strip().str.upper()
+
+    required_base_cols = ['codigo_cliente', 'nome_cliente', 'nome_vendedor_base',
+                          'Cliente_Coligacao', 'Nome_Coordenador', 'Municipio', 'Canal', 'Segmento']
+    missing_base = [c for c in required_base_cols if c not in df_base.columns]
+    if missing_base:
+        st.error(f"Colunas essenciais não encontradas no DataFrame BASE: {missing_base}")
+        st.stop()
+
+    # ============ BI ============
+    df_bi.columns = [str(col).strip() for col in df_bi.columns]
+    bi_rename = {}
+    for col in df_bi.columns:
+        col_norm = normalizar_texto(col)
+        if 'codigo cliente' in col_norm:
+            bi_rename[col] = 'codigo_cliente'
+        elif 'vendedor' in col_norm and 'ajustado' in col_norm:
+            bi_rename[col] = 'nome_vendedor_bi'
+        elif 'ano' in col_norm and 'mes' in col_norm:
+            bi_rename[col] = 'Ano_e_Mes'
+        elif 'fabricante' in col_norm:
+            bi_rename[col] = 'Nome_Fabricante'
+        elif 'linha de produto' in col_norm:
+            bi_rename[col] = 'Linha_Produto'
+        elif 'categoria' in col_norm:
+            bi_rename[col] = 'Categoria'
+        elif 'valor' in col_norm and ('venda' in col_norm or 'vendas' in col_norm):
+            bi_rename[col] = 'Valor_Vendas'
+    df_bi = df_bi.rename(columns=bi_rename)
+
+    if 'Ano_e_Mes' not in df_bi.columns:
+        for col in df_bi.columns:
+            if 'ano' in col.lower() and 'mes' in col.lower():
+                df_bi.rename(columns={col: 'Ano_e_Mes'}, inplace=True)
+                break
+
+    if 'Ano_e_Mes' not in df_bi.columns:
+        st.error("Não foi possível identificar a coluna de Ano/Mês no DataFrame BI.")
+        st.stop()
+
+    df_bi['Data'] = pd.to_datetime(df_bi['Ano_e_Mes'] + '-01', errors='coerce')
+    df_bi['MŒs'] = df_bi['Data'].dt.month
+    df_bi['Ano'] = df_bi['Data'].dt.year
+    df_bi['MŒs_Ano'] = df_bi['Data'].dt.to_period('M').astype(str)
+
+    if 'Valor_Vendas' in df_bi.columns:
+        def converter_valor(valor):
+            if pd.isna(valor):
+                return 0.0
+            s = str(valor).strip().replace('R$', '').replace(' ', '')
+            if s == '':
+                return 0.0
+            if ',' in s:
+                s = s.replace('.', '').replace(',', '.')
+            elif '.' in s:
+                if s.count('.') == 1:
+                    pass
+                else:
+                    s = s.replace('.', '')
+            try:
+                return float(s)
+            except:
+                return 0.0
+        df_bi['Valor_Vendas'] = df_bi['Valor_Vendas'].apply(converter_valor)
+
+    # ============ MERGE ============
+    df_base_dedup = df_base.drop_duplicates(subset=['codigo_cliente'], keep='first')
+    df_merged = df_bi.merge(
+        df_base[['codigo_cliente', 'nome_cliente', 'nome_vendedor_base', 'Cliente_Coligacao',
+                 'Nome_Coordenador', 'Municipio', 'Canal', 'Segmento']],
+        left_on=['codigo_cliente', 'nome_vendedor_bi'],
+        right_on=['codigo_cliente', 'nome_vendedor_base'],
+        how='left'
+    )
+    for col in ['nome_cliente', 'Cliente_Coligacao', 'Nome_Coordenador', 'Municipio', 'Canal', 'Segmento']:
+        if col in df_base.columns:
+            fallback_map = df_base_dedup.set_index('codigo_cliente')[col].to_dict()
+            df_merged[col] = df_merged[col].fillna(df_merged['codigo_cliente'].map(fallback_map))
+
+    df_merged['nome_vendedor'] = df_merged['nome_vendedor_bi']
+
+    fabricante_pasta = dict(zip(df_fabricantes['Nome Fabricante'], df_fabricantes['Pasta']))
+    vendedor_pasta = dict(zip(df_vendedores['Vendedor'], df_vendedores['Pasta']))
+
+    return df_base, df_bi, df_merged, df_meta_kenvue, data_dados, fabricante_pasta, vendedor_pasta
+
+df_base, df_bi, df_merged, df_meta_kenvue, data_dados, fabricante_pasta, vendedor_pasta = load_data()
+TODAS_INDUSTRIAS = sorted([i for i in df_bi['Nome_Fabricante'].dropna().unique() if str(i).strip() != ''])
+
+# ============================================================
+# FUNÇÕES AUXILIARES
+# ============================================================
+def formatar_mes_rotulo(periodo_str):
+    try:
+        ano, mes = periodo_str.split('-')
+        meses = {1:'Jan',2:'Fev',3:'Mar',4:'Abr',5:'Mai',6:'Jun',
+                 7:'Jul',8:'Ago',9:'Set',10:'Out',11:'Nov',12:'Dez'}
+        return f"{meses[int(mes)]}/{ano[2:]}"
+    except:
+        return periodo_str
+
+def formatar_numero_br(valor):
+    if pd.isna(valor):
+        return ''
+    try:
+        numero = float(valor)
+        return f"{numero:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return str(valor)
+
+def aplicar_filtros_comuns(df, incluir_mes=True):
+    df = df.copy()
+    if pasta_selecionada not in ["Todas", "PVA"]:
+        vendedores_pasta = [v for v in df_base['nome_vendedor_base'].unique()
+                            if vendedor_pasta.get(v) == pasta_selecionada]
+        df = df[df['nome_vendedor'].isin(vendedores_pasta)]
+    if vendedor_selecionado != "Todos":
+        df = df[df['nome_vendedor'] == vendedor_selecionado]
+    if coordenador_selecionado != "Todos":
+        df = df[df['Nome_Coordenador'] == coordenador_selecionado]
+    if coligacao_selecionada != "Todas":
+        df = df[df['Cliente_Coligacao'] == coligacao_selecionada]
+    if municipio_selecionado:
+        df = df[df['Municipio'].isin(municipio_selecionado)]
+    if canal_selecionado:
+        df = df[df['Canal'].isin(canal_selecionado)]
+    if segmento_selecionado:
+        df = df[df['Segmento'].isin(segmento_selecionado)]
+    if incluir_mes and mes_selecionado != "Todos":
+        mes_num = int(mes_selecionado.split(' - ')[0])
+        anos_do_mes = df[df['MŒs'] == mes_num]['Ano'].unique()
+        ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df['Ano'].max()
+        mes_ano_ref = f"{ano_ref}-{mes_num:02d}"
+        df = df[df['MŒs_Ano'] == mes_ano_ref]
+    if industria_selecionada_lista:
+        df = df[df['Nome_Fabricante'].isin(industria_selecionada_lista)]
+    if categoria_selecionada:
+        df = df[df['Categoria'].isin(categoria_selecionada)]
+    if linha_selecionada:
+        df = df[df['Linha_Produto'].isin(linha_selecionada)]
+    return df
+
+def calcular_janela_movel(df_historico, mes_selecionado, janela_meses):
+    if mes_selecionado == "Todos":
+        return df_historico.copy()
+    mes_num = int(mes_selecionado.split(' - ')[0])
+    anos_do_mes = df_historico[df_historico['MŒs'] == mes_num]['Ano'].unique()
+    ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df_historico['Ano'].max()
+    meses_janela = []
+    for i in range(1, janela_meses + 1):
+        mes = mes_num - i
+        ano = ano_ref
+        while mes <= 0:
+            mes += 12
+            ano -= 1
+        meses_janela.append((ano, mes))
+    cond = pd.Series(False, index=df_historico.index)
+    for a, m in meses_janela:
+        cond |= (df_historico['Ano'] == a) & (df_historico['MŒs'] == m)
+    return df_historico[cond]
+
+# ============================================================
+# FILTROS
+# ============================================================
+with st.expander("🎯 Filtros", expanded=True):
+    st.markdown("**Equipe de Vendas**")
+    col_eq1, col_eq2, col_eq3 = st.columns(3)
+    with col_eq1:
+        lista_coordenadores = ["Todos"] + sorted(df_base['Nome_Coordenador'].dropna().unique().tolist())
+        coordenador_selecionado = st.selectbox("Coordenador", lista_coordenadores, key='coord_top')
+    with col_eq2:
+        if coordenador_selecionado != "Todos":
+            vendedores_base = df_base[df_base['Nome_Coordenador'] == coordenador_selecionado]['nome_vendedor_base'].dropna().unique()
+        else:
+            vendedores_base = df_base['nome_vendedor_base'].dropna().unique()
+        lista_vendedores = ["Todos"] + sorted(vendedores_base)
+        vendedor_selecionado = st.selectbox("Vendedor", lista_vendedores, key='vend_top')
+    with col_eq3:
+        lista_pastas = ["Todas", "PA", "PV", "PVA"]
+        pasta_selecionada = st.selectbox("Pasta", lista_pastas, key='pasta_top')
+        if pasta_selecionada in ["Todas", "PVA"]:
+            INDUSTRIAS_PERMITIDAS = TODAS_INDUSTRIAS.copy()
+        else:
+            INDUSTRIAS_PERMITIDAS = [ind for ind in TODAS_INDUSTRIAS if fabricante_pasta.get(ind) == pasta_selecionada]
+
+    st.markdown("**Produto**")
+    col_prod1, col_prod2, col_prod3 = st.columns(3)
+    with col_prod1:
+        if pasta_selecionada in ["Todas", "PVA"]:
+            INDUSTRIAS_DISPONIVEIS = TODAS_INDUSTRIAS.copy()
+        else:
+            INDUSTRIAS_DISPONIVEIS = [ind for ind in TODAS_INDUSTRIAS if fabricante_pasta.get(ind) == pasta_selecionada]
+        industria_selecionada_lista = st.multiselect("Indústria(s)", options=INDUSTRIAS_DISPONIVEIS, key='ind_top')
+    with col_prod2:
+        categoria_selecionada = st.multiselect("Categoria(s)", options=sorted(df_bi['Categoria'].dropna().unique()), key='cat_top')
+    with col_prod3:
+        linha_selecionada = st.multiselect("Linha(s) de Produto", options=sorted(df_bi['Linha_Produto'].dropna().unique()), key='linha_top')
+
+    st.markdown("**Localização**")
+    col_loc1, col_loc2, col_loc3, col_loc4 = st.columns(4)
+    with col_loc1:
+        if vendedor_selecionado != "Todos":
+            clientes_do_vendedor = df_base[df_base['nome_vendedor_base'] == vendedor_selecionado]['codigo_cliente'].unique()
+            coligacoes_filtradas = df_base[df_base['codigo_cliente'].isin(clientes_do_vendedor)]['Cliente_Coligacao'].dropna().unique()
+        elif coordenador_selecionado != "Todos":
+            vendedores_do_coord = df_base[df_base['Nome_Coordenador'] == coordenador_selecionado]['nome_vendedor_base'].unique()
+            clientes_do_coord = df_base[df_base['nome_vendedor_base'].isin(vendedores_do_coord)]['codigo_cliente'].unique()
+            coligacoes_filtradas = df_base[df_base['codigo_cliente'].isin(clientes_do_coord)]['Cliente_Coligacao'].dropna().unique()
+        else:
+            coligacoes_filtradas = df_base['Cliente_Coligacao'].dropna().unique()
+        lista_coligacoes = ["Todas"] + sorted(coligacoes_filtradas)
+        coligacao_selecionada = st.selectbox("Coligação", lista_coligacoes, key='colig_top')
+    with col_loc2:
+        canal_selecionado = st.multiselect("Canal(is)", options=sorted(df_base['Canal'].dropna().unique()), key='canal_top')
+    with col_loc3:
+        segmento_selecionado = st.multiselect("Segmento(s)", options=sorted(df_base['Segmento'].dropna().unique()), key='seg_top')
+    with col_loc4:
+        municipio_selecionado = st.multiselect("Município(s)", options=sorted(df_base['Municipio'].dropna().unique()), key='muni_top')
+
+    st.markdown("**Período e Metas**")
+    col_per1, col_per2, col_per3 = st.columns(3)
+    with col_per1:
+        meses_disponiveis = sorted(df_merged['MŒs'].dropna().unique())
+        meses_nomes = {1:'Janeiro',2:'Fevereiro',3:'Março',4:'Abril',5:'Maio',6:'Junho',
+                       7:'Julho',8:'Agosto',9:'Setembro',10:'Outubro',11:'Novembro',12:'Dezembro'}
+        lista_meses = ["Todos"] + [f"{int(m):02d} - {meses_nomes.get(int(m), '')}" for m in meses_disponiveis]
+        if 'mes' not in st.session_state:
+            if meses_disponiveis:
+                ultimo_mes = max(meses_disponiveis)
+                st.session_state['mes'] = f"{int(ultimo_mes):02d} - {meses_nomes.get(int(ultimo_mes), '')}"
+            else:
+                st.session_state['mes'] = 'Todos'
+        mes_selecionado = st.selectbox("Mês", lista_meses, index=lista_meses.index(st.session_state['mes']), key='mes_top')
+        st.session_state['mes'] = mes_selecionado
+    with col_per2:
+        janela_meses = st.slider("Janela da Base Ativa (meses)", 3, 6, 6, key='janela_top')
+    with col_per3:
+        meta_ativa = st.number_input("Meta Base Ativa (%)", 0, 100, 70, key='meta_ativa_top')
+
+# ============================================================
+# APLICAR FILTROS
+# ============================================================
+df_filtrado = aplicar_filtros_comuns(df_merged, incluir_mes=True)
+df_historico = aplicar_filtros_comuns(df_merged, incluir_mes=False)
+df_relatorio_base = aplicar_filtros_comuns(df_merged, incluir_mes=False)
+df_historico_janela = calcular_janela_movel(df_historico, mes_selecionado, janela_meses)
+
+# ============================================================
+# NAVEGAÇÃO
+# ============================================================
+st.markdown("---")
+opcoes_paginas = [
+    "🏠 Visão Geral",
+    "👥 Performance Vendedor",
+    "📍 Positivação por Município",
+    "🏷️ Positivação por Segmento",
+    "🔀 Oportunidades Cruzadas",
+    "🟢 Softys Falcon",
+    "🟠 Kenvue Perfumaria",
+    "🟤 Cenoura & Bronze",
+    "📋 Batalha Naval",
+    "🔍 Ficha do Cliente"
+]
+if 'pagina_selecionada' not in st.session_state:
+    st.session_state['pagina_selecionada'] = opcoes_paginas[0]
+linhas = [opcoes_paginas[i:i+5] for i in range(0, len(opcoes_paginas), 5)]
+for linha in linhas:
+    cols = st.columns(len(linha))
+    for i, pagina in enumerate(linha):
+        with cols[i]:
+            if st.button(pagina, key=f'nav_btn_{pagina}', use_container_width=True):
+                st.session_state['pagina_selecionada'] = pagina
+                st.rerun()
+opcao = st.session_state['pagina_selecionada']
+
+# ============================================================
+# PÁGINA: VISÃO GERAL
+# ============================================================
+if opcao == "🏠 Visão Geral":
+    carteira_ativa_total = df_historico_janela[df_historico_janela['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
+    positivados_periodo = df_filtrado[df_filtrado['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
+    pct_ativa = (positivados_periodo / carteira_ativa_total * 100) if carteira_ativa_total > 0 else 0
+
+    st.subheader("📅 Carteira Ativa (Janela Móvel)")
+    col_a1, col_a2, col_a3 = st.columns(3)
+    col_a1.metric("Carteira Ativa (últimos {} meses)".format(janela_meses), carteira_ativa_total)
+    col_a2.metric("Positivados no Mês", positivados_periodo)
+    col_a3.metric("% Positivação (Ativa)", f"{pct_ativa:.1f}%")
+
+    if mes_selecionado != "Todos":
+        mes_num = int(mes_selecionado.split(' - ')[0])
+        anos_do_mes = df_historico[df_historico['MŒs'] == mes_num]['Ano'].unique()
+        ano_ytd = max(anos_do_mes) if len(anos_do_mes) > 0 else df_historico['Ano'].max()
     else:
-        df_softys = df_bi.copy()
+        ano_ytd = df_historico['Ano'].max()
+        mes_num = df_historico['MŒs'].max()
 
-    st.subheader("Linhas Softys Falcon (primeiras 5)")
-    st.dataframe(df_softys.head())
+    df_historico_ano = df_historico[df_historico['Ano'] == ano_ytd]
+    df_mensal_ativos = df_historico_ano[df_historico_ano['Nome_Fabricante'].notna()]
+    mensal_pos = df_mensal_ativos.groupby('MŒs_Ano')['codigo_cliente'].nunique().reset_index()
+    mensal_pos.columns = ['Mês', 'Clientes Positivados']
+    df_ytd = df_historico[(df_historico['Ano'] == ano_ytd) & (df_historico['MŒs'] <= mes_num)]
+    ytd_total = df_ytd['codigo_cliente'].nunique()
 
-    # Mostrar meses únicos
-    meses_unicos = sorted(df_softys[col_mes].astype(str).unique())
-    st.write("Meses únicos (valores originais):", meses_unicos)
+    df_meses = pd.DataFrame({'Mês': list(mensal_pos['Mês']), 'Clientes Positivados': list(mensal_pos['Clientes Positivados'])})
+    df_meses['Rótulo'] = df_meses['Mês'].apply(formatar_mes_rotulo)
 
-    # Mostrar soma por mês crua (valores como texto)
-    if len(df_softys) > 0:
-        st.subheader("Soma por mês (valores crus, sem conversão)")
-        # Apenas agrupa e soma se os valores forem numéricos; senão, mostra contagem
-        try:
-            df_softys[col_valor] = pd.to_numeric(df_softys[col_valor].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce')
-            soma_mes = df_softys.groupby(col_mes)[col_valor].sum().reset_index()
-            st.dataframe(soma_mes)
-        except:
-            st.warning("Não foi possível converter valores automaticamente.")
-            st.dataframe(df_softys[[col_mes, col_valor]].head(20))
-else:
-    st.error("Não foi possível identificar colunas de valor e mês automaticamente.")
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=df_meses['Rótulo'], y=df_meses['Clientes Positivados'], text=df_meses['Clientes Positivados'],
+                         textposition='outside', marker_color='#2E8B57', name='Mensal',
+                         hovertemplate='Mês: %{x}<br>Clientes: %{y}'))
+    fig.add_trace(go.Bar(x=['YTD'], y=[ytd_total], text=[ytd_total], textposition='outside',
+                         marker_color='#D32F2F', name='YTD', hovertemplate='YTD<br>Clientes: %{y}'))
+    fig.update_layout(title='Positivação Carteira Ativa (Mensal + YTD)', yaxis=dict(title='Clientes'),
+                      barmode='group', legend=dict(x=0.01, y=0.99))
+    st.plotly_chart(fig, use_container_width=True)
+
+# ============================================================
+# PÁGINA: SOFTYS FALCON (DIAGNÓSTICO)
+# ============================================================
+elif opcao == "🟢 Softys Falcon":
+    st.subheader("Diagnóstico Softys Falcon (temporário)")
+
+    df_softys = df_relatorio_base[df_relatorio_base['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
+    st.write(f"Total de linhas Softys Falcon: {len(df_softys)}")
+
+    st.write("Meses únicos no df_softys:")
+    st.write(sorted(df_softys['MŒs_Ano'].unique()))
+
+    st.write("Soma de Valor_Vendas por mês (Softys Falcon):")
+    soma_mes = df_softys.groupby('MŒs_Ano')['Valor_Vendas'].sum().reset_index()
+    st.dataframe(soma_mes)
+
+    st.write("Verificando coligação UNICA FARMA:")
+    df_una = df_softys[df_softys['Cliente_Coligacao'].str.contains('UNICA FARMA', case=False, na=False)]
+    st.write(f"Linhas UNICA FARMA: {len(df_una)}")
+    if not df_una.empty:
+        st.dataframe(df_una[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'MŒs_Ano', 'Valor_Vendas']])
+
+    st.stop()
