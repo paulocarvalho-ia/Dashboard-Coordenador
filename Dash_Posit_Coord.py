@@ -51,6 +51,7 @@ SHEET_ID = "100LtVtmS76bT2CJd-EIb-bHTgX3F1BVm8Er5vUa-VYQ"
 
 @st.cache_data(ttl=300)
 def load_data():
+    """Carrega e normaliza todos os dados do Google Sheets"""
     url_base = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet="
 
     try:
@@ -66,16 +67,41 @@ def load_data():
     data_dados = datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M')
 
     def normalizar_texto(texto):
+        """Remove acentos, caracteres especiais e transforma em minúsculas."""
         texto = unicodedata.normalize('NFKD', texto)
         texto = texto.encode('ASCII', 'ignore').decode('ASCII')
         texto = texto.lower().strip()
         texto = re.sub(r'\s+', ' ', texto)
         return texto
 
-    # ============ BASE ============
+    # ============================================================
+    # NORMALIZAR DF_BASE (com detecção robusta)
+    # ============================================================
     df_base.columns = [str(col).strip() for col in df_base.columns]
     base_rename = {}
+
+    # Mapeamento especial para coligação/cliente coligação
+    # Nova coluna "Cliente_Coligação" tem prioridade sobre a antiga "Coligação"
+    col_nova_coligacao = None
     for col in df_base.columns:
+        col_norm = normalizar_texto(col)
+        if 'cliente' in col_norm and 'coligacao' in col_norm:
+            col_nova_coligacao = col
+            break
+
+    if col_nova_coligacao:
+        base_rename[col_nova_coligacao] = 'Cliente_Coligacao'
+    else:
+        # Caso não exista a nova, procura a antiga
+        for col in df_base.columns:
+            if normalizar_texto(col) in ['coligacao', 'coliga']:
+                base_rename[col] = 'Cliente_Coligacao'
+                break
+
+    # Renomear demais colunas
+    for col in df_base.columns:
+        if col in base_rename:
+            continue
         col_norm = normalizar_texto(col)
         if 'codigo cliente' in col_norm or ('codigo' in col_norm and 'cliente' in col_norm):
             base_rename[col] = 'codigo_cliente'
@@ -83,8 +109,6 @@ def load_data():
             base_rename[col] = 'nome_cliente'
         elif 'vendedor' in col_norm:
             base_rename[col] = 'nome_vendedor_base'
-        elif 'coligacao' in col_norm or 'coliga' in col_norm:
-            base_rename[col] = 'Cliente_Coligacao'
         elif 'coordenador' in col_norm:
             base_rename[col] = 'Nome_Coordenador'
         elif 'municipio' in col_norm:
@@ -93,24 +117,31 @@ def load_data():
             base_rename[col] = 'Canal'
         elif 'segmento' in col_norm:
             base_rename[col] = 'Segmento'
+
     df_base = df_base.rename(columns=base_rename)
 
+    # Fallback: se 'nome_cliente' ainda não existir, procurar coluna 'Cliente' original
     if 'nome_cliente' not in df_base.columns:
         for col in df_base.columns:
             if normalizar_texto(col) == 'cliente':
                 df_base.rename(columns={col: 'nome_cliente'}, inplace=True)
                 break
 
+    # Verificar se colunas essenciais existem
     required_base_cols = ['codigo_cliente', 'nome_cliente', 'nome_vendedor_base',
                           'Cliente_Coligacao', 'Nome_Coordenador', 'Municipio', 'Canal', 'Segmento']
-    missing_base = [c for c in required_base_cols if c not in df_base.columns]
+    missing_base = [col for col in required_base_cols if col not in df_base.columns]
     if missing_base:
         st.error(f"Colunas essenciais não encontradas no DataFrame BASE: {missing_base}")
+        st.write("Colunas disponíveis:", df_base.columns.tolist())
         st.stop()
 
-    # ============ BI ============
+    # ============================================================
+    # NORMALIZAR DF_BI (com detecção robusta)
+    # ============================================================
     df_bi.columns = [str(col).strip() for col in df_bi.columns]
     bi_rename = {}
+
     for col in df_bi.columns:
         col_norm = normalizar_texto(col)
         if 'codigo cliente' in col_norm:
@@ -127,8 +158,10 @@ def load_data():
             bi_rename[col] = 'Categoria'
         elif 'valor' in col_norm and ('venda' in col_norm or 'vendas' in col_norm):
             bi_rename[col] = 'Valor_Vendas'
+
     df_bi = df_bi.rename(columns=bi_rename)
 
+    # Fallback: se ainda não achou a coluna de período, procura diretamente
     if 'Ano_e_Mes' not in df_bi.columns:
         for col in df_bi.columns:
             if 'ano' in col.lower() and 'mes' in col.lower():
@@ -139,12 +172,13 @@ def load_data():
         st.error("Não foi possível identificar a coluna de Ano/Mês no DataFrame BI.")
         st.stop()
 
+    # Processar datas
     df_bi['Data'] = pd.to_datetime(df_bi['Ano_e_Mes'] + '-01', errors='coerce')
     df_bi['MŒs'] = df_bi['Data'].dt.month
     df_bi['Ano'] = df_bi['Data'].dt.year
     df_bi['MŒs_Ano'] = df_bi['Data'].dt.to_period('M').astype(str)
 
-    # ✅ Conversão robusta de valores
+    # ✅ Converter Valor_Vendas para numérico (tratando formatos)
     if 'Valor_Vendas' in df_bi.columns:
         def converter_valor(valor):
             if pd.isna(valor):
@@ -152,30 +186,34 @@ def load_data():
             s = str(valor).strip().replace('R$', '').replace(' ', '')
             if s == '':
                 return 0.0
-            # Se tem vírgula, assume formato brasileiro: remove pontos de milhar e vírgula vira decimal
             if ',' in s:
                 s = s.replace('.', '').replace(',', '.')
-            else:
-                # Se não tem vírgula, pode ser inteiro ou decimal com ponto
-                # Remove pontos de milhar se houver mais de um ponto
-                if s.count('.') > 1:
+            elif '.' in s:
+                if s.count('.') == 1:
+                    pass
+                else:
                     s = s.replace('.', '')
-                # Se houver um único ponto, assume decimal
             try:
                 return float(s)
             except:
                 return 0.0
         df_bi['Valor_Vendas'] = df_bi['Valor_Vendas'].apply(converter_valor)
 
-    # ============ MERGE ============
+    # ============================================================
+    # MERGE
+    # ============================================================
     df_base_dedup = df_base.drop_duplicates(subset=['codigo_cliente'], keep='first')
+
+    # Merge principal (por cliente + vendedor)
     df_merged = df_bi.merge(
-        df_base[['codigo_cliente', 'nome_cliente', 'nome_vendedor_base', 'Cliente_Coligacao',
+        df_base[['codigo_cliente', 'nome_cliente', 'nome_vendedor_base', 'Cliente_Coligacao', 
                  'Nome_Coordenador', 'Municipio', 'Canal', 'Segmento']],
         left_on=['codigo_cliente', 'nome_vendedor_bi'],
         right_on=['codigo_cliente', 'nome_vendedor_base'],
         how='left'
     )
+
+    # Fallback SEGURO usando map
     for col in ['nome_cliente', 'Cliente_Coligacao', 'Nome_Coordenador', 'Municipio', 'Canal', 'Segmento']:
         if col in df_base.columns:
             fallback_map = df_base_dedup.set_index('codigo_cliente')[col].to_dict()
@@ -183,12 +221,15 @@ def load_data():
 
     df_merged['nome_vendedor'] = df_merged['nome_vendedor_bi']
 
+    # Mapear pastas
     fabricante_pasta = dict(zip(df_fabricantes['Nome Fabricante'], df_fabricantes['Pasta']))
     vendedor_pasta = dict(zip(df_vendedores['Vendedor'], df_vendedores['Pasta']))
 
     return df_base, df_bi, df_merged, df_meta_kenvue, data_dados, fabricante_pasta, vendedor_pasta
 
+# Carregar dados
 df_base, df_bi, df_merged, df_meta_kenvue, data_dados, fabricante_pasta, vendedor_pasta = load_data()
+
 TODAS_INDUSTRIAS = sorted([i for i in df_bi['Nome_Fabricante'].dropna().unique() if str(i).strip() != ''])
 
 # ============================================================
@@ -197,8 +238,8 @@ TODAS_INDUSTRIAS = sorted([i for i in df_bi['Nome_Fabricante'].dropna().unique()
 def formatar_mes_rotulo(periodo_str):
     try:
         ano, mes = periodo_str.split('-')
-        meses = {1:'Jan',2:'Fev',3:'Mar',4:'Abr',5:'Mai',6:'Jun',
-                 7:'Jul',8:'Ago',9:'Set',10:'Out',11:'Nov',12:'Dez'}
+        meses = {1:'Jan', 2:'Fev', 3:'Mar', 4:'Abr', 5:'Mai', 6:'Jun',
+                 7:'Jul', 8:'Ago', 9:'Set', 10:'Out', 11:'Nov', 12:'Dez'}
         return f"{meses[int(mes)]}/{ano[2:]}"
     except:
         return periodo_str
@@ -215,8 +256,8 @@ def formatar_numero_br(valor):
 def aplicar_filtros_comuns(df, incluir_mes=True):
     df = df.copy()
     if pasta_selecionada not in ["Todas", "PVA"]:
-        vendedores_pasta = [v for v in df_base['nome_vendedor_base'].unique()
-                            if vendedor_pasta.get(v) == pasta_selecionada]
+        vendedores_pasta = [v for v in df_base['nome_vendedor_base'].unique() 
+                           if vendedor_pasta.get(v) == pasta_selecionada]
         df = df[df['nome_vendedor'].isin(vendedores_pasta)]
     if vendedor_selecionado != "Todos":
         df = df[df['nome_vendedor'] == vendedor_selecionado]
@@ -325,8 +366,8 @@ with st.expander("🎯 Filtros", expanded=True):
     col_per1, col_per2, col_per3 = st.columns(3)
     with col_per1:
         meses_disponiveis = sorted(df_merged['MŒs'].dropna().unique())
-        meses_nomes = {1:'Janeiro',2:'Fevereiro',3:'Março',4:'Abril',5:'Maio',6:'Junho',
-                       7:'Julho',8:'Agosto',9:'Setembro',10:'Outubro',11:'Novembro',12:'Dezembro'}
+        meses_nomes = {1:'Janeiro', 2:'Fevereiro', 3:'Março', 4:'Abril', 5:'Maio', 6:'Junho', 
+                       7:'Julho', 8:'Agosto', 9:'Setembro', 10:'Outubro', 11:'Novembro', 12:'Dezembro'}
         lista_meses = ["Todos"] + [f"{int(m):02d} - {meses_nomes.get(int(m), '')}" for m in meses_disponiveis]
         if 'mes' not in st.session_state:
             if meses_disponiveis:
@@ -420,7 +461,7 @@ if opcao == "🏠 Visão Geral":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# PÁGINA: SOFTYS FALCON (COM TOP 10 CLIENTES)
+# PÁGINA: SOFTYS FALCON (COM TOP 10 COLIGAÇÕES/CLIENTES)
 # ============================================================
 elif opcao == "🟢 Softys Falcon":
     df_softys = df_relatorio_base[df_relatorio_base['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
@@ -458,60 +499,23 @@ elif opcao == "🟢 Softys Falcon":
         df_top_mes = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]
         df_top_6m = df_softys[df_softys['MŒs_Ano'].isin(meses_6m)]
 
-        # Função para gerar chave de agrupamento
-        def gerar_chave_top(df):
-            df = df.copy()
-            df['Top_Key'] = df['Cliente_Coligacao'].astype(str).str.strip()
-            # Ignorar coligações vazias ou "DIVERSOS"
-            df.loc[df['Top_Key'].isin(['', 'nan', 'DIVERSOS', 'Diversos', 'diversos']), 'Top_Key'] = df['codigo_cliente'].astype(str)
-            return df
-
-        df_top_mes = gerar_chave_top(df_top_mes)
-        df_top_6m = gerar_chave_top(df_top_6m)
-
-        # Somas por chave
-        soma_mes = df_top_mes.groupby('Top_Key')['Valor_Vendas'].sum().reset_index()
-        soma_mes.columns = ['Top_Key', 'Mês Atual']
-        soma_6m = df_top_6m.groupby('Top_Key')['Valor_Vendas'].sum().reset_index()
-        soma_6m.columns = ['Top_Key', 'Total 6M']
+        # Agrupamento direto pela coluna "Cliente_Coligacao" (já contém a lógica de rótulo desejada)
+        soma_mes = df_top_mes.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+        soma_mes.columns = ['Cliente', 'Mês Atual']
+        soma_6m = df_top_6m.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+        soma_6m.columns = ['Cliente', 'Total 6M']
         soma_6m['Média 6M'] = soma_6m['Total 6M'] / 6
 
         # Merge OUTER para incluir clientes sem venda no mês atual
-        df_top = soma_6m[['Top_Key', 'Média 6M']].merge(soma_mes, on='Top_Key', how='left').fillna(0)
+        df_top = soma_6m[['Cliente', 'Média 6M']].merge(soma_mes, on='Cliente', how='left').fillna(0)
         df_top = df_top[df_top['Média 6M'] > 0]  # apenas clientes com venda no período 6M
 
-        # Mapeamento de chaves para rótulos: coligação usa o próprio nome, cliente isolado usa nome_cliente
-        df_label = df_base[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao']].drop_duplicates()
-        df_label['Cliente_Coligacao'] = df_label['Cliente_Coligacao'].astype(str).str.strip()
-        df_label.loc[df_label['Cliente_Coligacao'].isin(['', 'nan', 'DIVERSOS', 'Diversos', 'diversos']), 'Cliente_Coligacao'] = df_label['codigo_cliente'].astype(str)
-
-        # Conjunto de coligações válidas (que não são códigos de cliente)
-        coligacoes_validas = set(df_label['Cliente_Coligacao'].unique()) - set(df_label['codigo_cliente'].astype(str).unique())
-
-        # Mapa de códigos para nome do cliente (para clientes isolados)
-        map_client = df_label.drop_duplicates(subset=['codigo_cliente']).set_index('codigo_cliente')['nome_cliente'].to_dict()
-
-        def get_label(key):
-            # Se a chave for uma coligação válida, retorna a própria chave (nome da coligação)
-            if key in coligacoes_validas:
-                return key
-            else:
-                # Senão, tenta como código de cliente isolado
-                return map_client.get(key, key)
-
-        df_top['Cliente'] = df_top['Top_Key'].apply(get_label)
-        df_top = df_top[['Cliente', 'Média 6M', 'Mês Atual']]
-
-        # Ordenar pela média 6M decrescente
+        # Ordenar pela média 6M decrescente e pegar top 10
         df_top = df_top.sort_values('Média 6M', ascending=False).head(10)
 
         # Linha de total
         total_media = df_top['Média 6M'].sum()
         total_mes = df_top['Mês Atual'].sum()
-        if total_media > 0:
-            variacao_total = ((total_mes / total_media) - 1) * 100
-        else:
-            variacao_total = 0
 
         # Exibição formatada
         df_top_display = df_top.copy()
@@ -539,7 +543,7 @@ elif opcao == "🟢 Softys Falcon":
             textposition='outside'
         ))
         fig_top.update_layout(
-            title='TOP 10 Clientes - Média 6 Meses Anteriores vs Mês Atual',
+            title='TOP 10 Coligações/Clientes - Média 6 Meses Anteriores vs Mês Atual',
             barmode='group',
             yaxis_title='Valor de Vendas',
             xaxis_title='Cliente'
