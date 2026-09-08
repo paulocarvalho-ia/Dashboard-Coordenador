@@ -431,41 +431,55 @@ if opcao == "🏠 Visão Geral":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# PÁGINA: SOFTYS FALCON (DIAGNÓSTICO BASE BRUTA)
+# PÁGINA: SOFTYS FALCON (DIAGNÓSTICO FINAL)
 # ============================================================
 elif opcao == "🟢 Softys Falcon":
-    st.subheader("Diagnóstico Softys Falcon - Base bruta (sem filtros)")
+    st.subheader("Diagnóstico Softys Falcon - Verificação de dados e filtros")
 
-    # Usar df_bi sem filtros, apenas a indústria Softys Falcon
-    df_softys_bruto = df_bi[df_bi['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
+    # 1. Mostrar total de linhas e soma por mês usando df_merged
+    df_softys = df_merged[df_merged['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
+    st.write(f"Total de linhas Softys Falcon (df_merged): {len(df_softys)}")
 
-    st.write(f"Total de linhas Softys Falcon (BI bruto): {len(df_softys_bruto)}")
+    meses_unicos = sorted(df_softys['MŒs_Ano'].unique())
+    st.write("Meses disponíveis (df_merged):", meses_unicos)
 
-    # Meses disponíveis
-    meses_disponiveis = sorted(df_softys_bruto['MŒs_Ano'].unique())
-    st.write("Meses disponíveis para Softys Falcon:")
-    st.write(meses_disponiveis)
+    soma_por_mes = df_softys.groupby('MŒs_Ano')['Valor_Vendas'].sum().reset_index()
+    st.write("Soma por mês (df_merged):")
+    st.dataframe(soma_por_mes)
 
-    # Contagem por mês
-    contagem_mes = df_softys_bruto.groupby('MŒs_Ano')['Valor_Vendas'].sum().reset_index()
-    st.write("Soma de Valor_Vendas por mês (bruto):")
-    st.dataframe(contagem_mes)
-
-    # Verificar setembro
-    if '2025-09' in meses_disponiveis:
-        df_set = df_softys_bruto[df_softys_bruto['MŒs_Ano'] == '2025-09']
-        st.write(f"Linhas em setembro (bruto): {len(df_set)}")
+    # 2. Verificar setembro (primeiro mês com 09 no nome)
+    setembro = [m for m in meses_unicos if m.endswith('-09')]
+    if not setembro:
+        st.warning("Nenhum mês de setembro encontrado nos dados.")
+    else:
+        mes_set = setembro[-1]  # pega o último setembro
+        st.write(f"Usando setembro: {mes_set}")
+        df_set = df_softys[df_softys['MŒs_Ano'] == mes_set]
+        st.write(f"Linhas em {mes_set}: {len(df_set)}")
         if len(df_set) > 0:
             soma_set = df_set['Valor_Vendas'].sum()
-            st.write(f"Soma setembro (bruto): {formatar_numero_br(soma_set)}")
-            # Filtrar UNICA FARMA
-            df_una_bruto = df_set[df_set['Cliente_Coligacao'].str.contains('UNICA FARMA', case=False, na=False)]
-            st.write(f"Linhas UNICA FARMA em setembro (bruto): {len(df_una_bruto)}")
-            if not df_una_bruto.empty:
-                st.dataframe(df_una_bruto[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'Valor_Vendas']])
-                soma_una_bruto = df_una_bruto['Valor_Vendas'].sum()
-                st.write(f"Soma UNICA FARMA setembro (bruto): {formatar_numero_br(soma_una_bruto)}")
-    else:
-        st.warning("Setembro (2025-09) não está nos dados brutos.")
+            st.write(f"Soma total {mes_set}: {formatar_numero_br(soma_set)}")
+
+            # Filtrar apenas coligações que contêm UNICA FARMA
+            df_una = df_set[df_set['Cliente_Coligacao'].str.contains('UNICA FARMA', case=False, na=False)]
+            st.write(f"Linhas UNICA FARMA em {mes_set}: {len(df_una)}")
+            if not df_una.empty:
+                st.dataframe(df_una[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'Valor_Vendas']])
+                soma_una = df_una['Valor_Vendas'].sum()
+                st.write(f"Soma UNICA FARMA {mes_set}: {formatar_numero_br(soma_una)}")
+            else:
+                st.warning("Nenhuma linha com UNICA FARMA encontrada.")
+        else:
+            st.warning("Nenhuma linha para o mês de setembro.")
+
+    # 3. Verificar filtros ativos (para garantir que não estão escondendo dados)
+    st.write("Filtros ativos:")
+    st.write(f"Coordenador: {coordenador_selecionado}")
+    st.write(f"Vendedor: {vendedor_selecionado}")
+    st.write(f"Pasta: {pasta_selecionada}")
+    st.write(f"Coligação: {coligacao_selecionada}")
+    st.write(f"Município: {municipio_selecionado}")
+    st.write(f"Canal: {canal_selecionado}")
+    st.write(f"Segmento: {segmento_selecionado}")
 
     st.stop()
