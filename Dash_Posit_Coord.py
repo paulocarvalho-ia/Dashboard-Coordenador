@@ -158,6 +158,7 @@ def load_data():
     df_bi['Ano'] = df_bi['Data'].dt.year
     df_bi['MŒs_Ano'] = df_bi['Data'].dt.to_period('M').astype(str)
 
+    # Conversão de valores
     if 'Valor_Vendas' in df_bi.columns:
         def converter_valor(valor):
             if pd.isna(valor):
@@ -431,26 +432,33 @@ if opcao == "🏠 Visão Geral":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# PÁGINA: SOFTYS FALCON (DIAGNÓSTICO)
+# PÁGINA: SOFTYS FALCON (DIAGNÓSTICO ESPECÍFICO)
 # ============================================================
 elif opcao == "🟢 Softys Falcon":
-    st.subheader("Diagnóstico Softys Falcon")
+    st.subheader("Diagnóstico Softys Falcon - Coligação DROGARIA UNICA FARMA")
 
     df_softys = df_relatorio_base[df_relatorio_base['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
 
-    st.write(f"Total de linhas Softys Falcon: {len(df_softys)}")
-    st.write(f"Colunas disponíveis: {list(df_softys.columns)}")
+    # Definir setembro como mês atual
+    mes_atual_str = "2025-09"  # Ajuste conforme necessário
+    df_mes = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]
 
-    st.write("Amostra dos dados:")
-    st.dataframe(df_softys.head())
+    st.write("Soma geral Softys Falcon em setembro (convertida):")
+    soma_geral = df_mes['Valor_Vendas'].sum()
+    st.write(formatar_numero_br(soma_geral))
 
-    st.write("Linhas da coligação DROGARIA UNICA FARMA:")
-    df_una = df_softys[df_softys['Cliente_Coligacao'].str.contains('UNICA FARMA', case=False, na=False)]
-    st.dataframe(df_una[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'MŒs_Ano', 'Valor_Vendas']])
+    # Filtrar apenas coligação
+    df_una = df_mes[df_mes['Cliente_Coligacao'].str.contains('UNICA FARMA', case=False, na=False)]
+    st.write(f"Linhas encontradas para UNICA FARMA: {len(df_una)}")
+    st.dataframe(df_una[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'Valor_Vendas']])
 
-    if not df_una.empty:
-        soma_por_mes = df_una.groupby('MŒs_Ano')['Valor_Vendas'].sum().reset_index()
-        st.write("Soma por mês para DROGARIA UNICA FARMA:")
-        st.dataframe(soma_por_mes)
+    # Soma
+    soma_una = df_una['Valor_Vendas'].sum()
+    st.write(f"Soma UNICA FARMA setembro: {formatar_numero_br(soma_una)}")
+
+    # Agrupar por código para ver se há divisão
+    soma_por_codigo = df_una.groupby('codigo_cliente')['Valor_Vendas'].sum().reset_index()
+    st.write("Soma por código:")
+    st.dataframe(soma_por_codigo)
 
     st.stop()
