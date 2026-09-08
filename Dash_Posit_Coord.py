@@ -134,6 +134,7 @@ def load_data():
             bi_rename[col] = 'Linha_Produto'
         elif 'categoria' in col_norm:
             bi_rename[col] = 'Categoria'
+        # ✅ Detecta "Valor Venda" ou "Valor das Vendas"
         elif 'valor' in col_norm and ('venda' in col_norm or 'vendas' in col_norm):
             bi_rename[col] = 'Valor_Vendas'
 
@@ -234,46 +235,6 @@ def formatar_numero_br(valor):
         return f"{numero:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except:
         return str(valor)
-
-def gerar_pdf_html(tabela_df, titulo):
-    """Gera PDF a partir de DataFrame usando HTML + CSS"""
-    try:
-        from weasyprint import HTML
-
-        html_content = f"""
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <style>
-                @page {{ size: A4 landscape; margin: 1cm; }}
-                body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                h1 {{ color: #1a3a4a; font-size: 18px; margin-bottom: 15px; }}
-                table {{ border-collapse: collapse; width: 100%; font-size: 9px; }}
-                th {{ background: #1a3a4a; color: white; padding: 6px 4px; border: 1px solid #1a3a4a; font-weight: bold; }}
-                td {{ border: 1px solid #ddd; padding: 4px; text-align: center; }}
-                tr:nth-child(even) {{ background: #f9f9f9; }}
-                tr:hover {{ background: #f0f0f0; }}
-                .footer {{ margin-top: 20px; font-size: 8px; color: #666; text-align: right; }}
-            </style>
-        </head>
-        <body>
-            <h1>{titulo}</h1>
-            {tabela_df.to_html(index=False, border=1, classes='dataframe')}
-            <div class="footer">Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}</div>
-        </body>
-        </html>
-        """
-
-        pdf_buffer = BytesIO()
-        HTML(string=html_content).write_pdf(pdf_buffer)
-        pdf_buffer.seek(0)
-        return pdf_buffer.getvalue()
-    except ImportError:
-        st.error("Biblioteca 'weasyprint' não instalada. Execute: pip install weasyprint")
-        return None
-    except Exception as e:
-        st.error(f"Erro ao gerar PDF: {str(e)}")
-        return None
 
 def aplicar_filtros_comuns(df, incluir_mes=True):
     """Aplica todos os filtros comuns aos dados"""
@@ -738,7 +699,7 @@ elif opcao == "🔀 Oportunidades Cruzadas":
         st.info("Selecione ao menos uma indústria em cada lista para visualizar as oportunidades cruzadas.")
 
 # ============================================================
-# PÁGINA: SOFTYS FALCON (COM TOP 10 COLIGAÇÕES)
+# PÁGINA: SOFTYS FALCON (SEM COLIGAÇÕES)
 # ============================================================
 elif opcao == "🟢 Softys Falcon":
     df_softys = df_relatorio_base[df_relatorio_base['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
@@ -746,18 +707,17 @@ elif opcao == "🟢 Softys Falcon":
     if not df_softys.empty:
         st.subheader("🟢 Foco Estratégico: Softys Falcon")
 
-        # Determinação do mês atual e ano de referência (mesma lógica da Visão Geral)
         if mes_selecionado != "Todos":
             mes_num = int(mes_selecionado.split(' - ')[0])
             anos_do_mes = df_softys[df_softys['MŒs'] == mes_num]['Ano'].unique()
-            ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
+            ano_atual = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
             mes_atual_num = mes_num
         else:
-            ano_ref = df_softys['Ano'].max()
-            mes_atual_num = df_softys.loc[df_softys['Ano'] == ano_ref, 'MŒs'].max()
+            ano_atual = df_softys['Ano'].max()
+            mes_atual_num = df_softys['MŒs'].max()
 
-        meses_ano = [f"{ano_ref}-{m:02d}" for m in range(1, mes_atual_num + 1)]
-        df_softys_ano = df_softys[(df_softys['Ano'] == ano_ref) & (df_softys['MŒs'] <= mes_atual_num)]
+        meses_ano = [f"{ano_atual}-{m:02d}" for m in range(1, mes_atual_num + 1)]
+        df_softys_ano = df_softys[(df_softys['Ano'] == ano_atual) & (df_softys['MŒs'] <= mes_atual_num)]
 
         monthly_totals = df_softys_ano.groupby('MŒs_Ano')['codigo_cliente'].nunique().reset_index()
         monthly_totals.columns = ['Mês', 'Clientes']
@@ -765,7 +725,6 @@ elif opcao == "🟢 Softys Falcon":
 
         ytd_total = df_softys_ano['codigo_cliente'].nunique()
 
-        # Gráfico mensal + YTD
         df_mensal_softys = monthly_totals[['Mês', 'Clientes']].copy()
         df_mensal_softys['Rótulo'] = df_mensal_softys['Mês'].apply(formatar_mes_rotulo)
 
@@ -796,7 +755,6 @@ elif opcao == "🟢 Softys Falcon":
         )
         st.plotly_chart(fig_softys, use_container_width=True)
 
-        # Tabela mensal por categoria
         pivot_mensal = df_softys_ano.pivot_table(index='Categoria', columns='MŒs_Ano', 
                                                   values='codigo_cliente', aggfunc='nunique', fill_value=0)
         pivot_mensal = pivot_mensal.reindex(columns=meses_ano, fill_value=0)
@@ -821,111 +779,6 @@ elif opcao == "🟢 Softys Falcon":
                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 
                            use_container_width=True)
 
-        pdf_mensal = gerar_pdf_html(tabela, "Softys Falcon - Mensal + YTD")
-        if pdf_mensal:
-            st.download_button("📄 Baixar PDF (Mensal)", data=pdf_mensal,
-                               file_name=f'softys_mensal_{datetime.now().strftime("%Y%m%d")}.pdf',
-                               mime='application/pdf', use_container_width=True)
-
-        # ============================================================
-        # TOP 10 COLIGAÇÕES (MÊS ATUAL VS MÉDIA 6M)
-        # ============================================================
-        # Removido título duplicado; agora apenas o gráfico terá título.
-        mes_atual_str = f"{ano_ref}-{mes_atual_num:02d}"
-
-        # Meses anteriores
-        meses_6m = []
-        for i in range(1, 7):
-            mes = mes_atual_num - i
-            ano = ano_ref
-            while mes <= 0:
-                mes += 12
-                ano -= 1
-            meses_6m.append(f"{ano}-{mes:02d}")
-
-        df_softys_top_mes = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]
-        df_softys_top_6m = df_softys[df_softys['MŒs_Ano'].isin(meses_6m)]
-
-        if 'Valor_Vendas' in df_softys.columns:
-            vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
-            vendas_mes.columns = ['Coligação', 'Mês Atual']
-            vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
-            vendas_6m_total.columns = ['Coligação', 'Total 6M']
-            vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
-            df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
-        else:
-            # fallback
-            vendas_mes = df_softys_top_mes.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
-            vendas_mes.columns = ['Coligação', 'Mês Atual']
-            vendas_6m_total = df_softys_top_6m.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
-            vendas_6m_total.columns = ['Coligação', 'Total 6M']
-            vendas_6m_total['Média 6M'] = vendas_6m_total['Total 6M'] / 6
-            df_top = vendas_mes.merge(vendas_6m_total[['Coligação', 'Média 6M']], on='Coligação', how='left').fillna(0)
-
-        df_top = df_top.sort_values('Mês Atual', ascending=False).head(10)
-
-        if not df_top.empty:
-            # Calcular variação percentual
-            df_top['Variação %'] = ((df_top['Mês Atual'] / df_top['Média 6M']) - 1) * 100
-            df_top['Variação %'] = df_top['Variação %'].round(1).fillna(0)
-
-            # Criar cópia formatada para exibição
-            df_top_display = df_top.copy()
-            df_top_display['Mês Atual'] = df_top_display['Mês Atual'].apply(formatar_numero_br)
-            df_top_display['Média 6M'] = df_top_display['Média 6M'].apply(formatar_numero_br)
-            df_top_display['Variação %'] = df_top_display['Variação %'].apply(lambda x: f"{x:.1f}%".replace('.', ','))
-
-            # Adicionar linha de total
-            total_mes_atual = df_top['Mês Atual'].sum()
-            total_media_6m = df_top['Média 6M'].sum()
-            if total_media_6m > 0:
-                total_variacao = ((total_mes_atual / total_media_6m) - 1) * 100
-            else:
-                total_variacao = 0
-            total_variacao_fmt = f"{total_variacao:.1f}%".replace('.', ',')
-
-            total_row = {
-                'Coligação': 'TOTAL',
-                'Mês Atual': formatar_numero_br(total_mes_atual),
-                'Média 6M': formatar_numero_br(total_media_6m),
-                'Variação %': total_variacao_fmt
-            }
-            df_top_display = pd.concat([df_top_display, pd.DataFrame([total_row])], ignore_index=True)
-
-            # Gráfico (usar valores numéricos originais)
-            fig_top = go.Figure()
-            fig_top.add_trace(go.Bar(
-                x=df_top['Coligação'],
-                y=df_top['Mês Atual'],
-                name='Mês Atual',
-                marker_color='#2E8B57',
-                text=df_top['Mês Atual'].apply(formatar_numero_br),
-                textposition='outside'
-            ))
-            fig_top.add_trace(go.Bar(
-                x=df_top['Coligação'],
-                y=df_top['Média 6M'],
-                name='Média 6M',
-                marker_color='#FFA000',
-                text=df_top['Média 6M'].apply(formatar_numero_br),
-                textposition='outside'
-            ))
-            fig_top.update_layout(
-                title='TOP 10 Coligações - Mês Atual vs Média 6 Meses Anteriores',
-                barmode='group',
-                yaxis_title='Valor de Vendas',
-                xaxis_title='Coligação'
-            )
-            st.plotly_chart(fig_top, use_container_width=True)
-
-            # Exibir tabela com total
-            st.dataframe(df_top_display, use_container_width=True, hide_index=True)
-        else:
-            st.info("Sem dados para TOP Coligações no período.")
-
-        # ============================================================
-        # BATALHA NAVAL SOFTYS
-        # ============================================================
         st.markdown("**Batalha Naval Softys Falcon — Clientes que compraram**")
         df_softys_clientes = df_softys_ano[['codigo_cliente', 'nome_cliente', 'Municipio', 
                                             'Cliente_Coligacao', 'nome_vendedor', 'Categoria']].drop_duplicates()
@@ -948,12 +801,6 @@ elif opcao == "🟢 Softys Falcon":
                            file_name=f'batalha_naval_softys_{datetime.now().strftime("%Y%m%d")}.xlsx',
                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 
                            use_container_width=True)
-
-        pdf_bn = gerar_pdf_html(clientes_pivot, "Batalha Naval Softys Falcon")
-        if pdf_bn:
-            st.download_button("📄 Baixar PDF (Batalha Naval)", data=pdf_bn,
-                               file_name=f'batalha_naval_softys_{datetime.now().strftime("%Y%m%d")}.pdf',
-                               mime='application/pdf', use_container_width=True)
     else:
         st.warning("Nenhum dado da Softys Falcon para os filtros atuais.")
 
@@ -1291,12 +1138,6 @@ elif opcao == "📋 Batalha Naval":
         st.download_button("📥 Baixar Excel", data=output.getvalue(),
                            file_name=f'batalha_naval_{datetime.now().strftime("%Y%m%d")}.xlsx',
                            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', use_container_width=True)
-    with col2:
-        pdf_data = gerar_pdf_html(matriz_bin, "Relatório Batalha Naval")
-        if pdf_data:
-            st.download_button("📄 Baixar PDF", data=pdf_data,
-                               file_name=f'batalha_naval_{datetime.now().strftime("%Y%m%d")}.pdf',
-                               mime='application/pdf', use_container_width=True)
 
 # ============================================================
 # PÁGINA: FICHA DO CLIENTE
