@@ -134,7 +134,6 @@ def load_data():
             bi_rename[col] = 'Linha_Produto'
         elif 'categoria' in col_norm:
             bi_rename[col] = 'Categoria'
-        # ✅ Detecta "Valor Venda" ou "Valor das Vendas"
         elif 'valor' in col_norm and ('venda' in col_norm or 'vendas' in col_norm):
             bi_rename[col] = 'Valor_Vendas'
 
@@ -371,7 +370,7 @@ with st.expander("🎯 Filtros", expanded=True):
         municipio_selecionado = st.multiselect("Município(s)", options=sorted(df_base['Municipio'].dropna().unique()), key='muni_top')
 
     st.markdown("**Período e Metas**")
-    col_per1, col_per2, col_per3, col_per4 = st.columns(4)
+    col_per1, col_per2, col_per3 = st.columns(3)
 
     with col_per1:
         meses_disponiveis = sorted(df_merged['MŒs'].dropna().unique())
@@ -394,9 +393,6 @@ with st.expander("🎯 Filtros", expanded=True):
 
     with col_per3:
         meta_ativa = st.number_input("Meta Base Ativa (%)", 0, 100, 70, key='meta_ativa_top')
-
-    with col_per4:
-        meta_total = st.number_input("Meta Carteira Total (%)", 0, 100, 50, key='meta_total_top')
 
 # ============================================================
 # APLICAR FILTROS
@@ -502,23 +498,6 @@ if opcao == "🏠 Visão Geral":
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    if vendedor_selecionado != "Todos":
-        total_clientes_base = df_base[df_base['nome_vendedor_base'] == vendedor_selecionado]['codigo_cliente'].nunique()
-    elif coordenador_selecionado != "Todos":
-        vendedores_do_coord = df_base[df_base['Nome_Coordenador'] == coordenador_selecionado]['nome_vendedor_base'].unique()
-        total_clientes_base = df_base[df_base['nome_vendedor_base'].isin(vendedores_do_coord)]['codigo_cliente'].nunique()
-    else:
-        total_clientes_base = df_base['codigo_cliente'].nunique()
-
-    total_positivados = len(df_filtrado[df_filtrado['Nome_Fabricante'].notna()]['codigo_cliente'].unique())
-    pct_total = (total_positivados / total_clientes_base * 100) if total_clientes_base > 0 else 0
-
-    st.subheader("📋 Carteira Total")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Clientes na Carteira", total_clientes_base)
-    col2.metric("Clientes Positivados", total_positivados)
-    col3.metric("% Positivação (Carteira Total)", f"{pct_total:.1f}%")
-
 # ============================================================
 # PÁGINA: PERFORMANCE POR VENDEDOR
 # ============================================================
@@ -547,7 +526,6 @@ elif opcao == "👥 Performance Vendedor":
     perf_list = []
     for vendedor in vendedores_base:
         pasta_v = vendedor_pasta.get(vendedor, "")
-        clientes_carteira = df_base_perf[df_base_perf['nome_vendedor_base'] == vendedor]['codigo_cliente'].nunique()
         clientes_ativos_hist = df_historico_janela[df_historico_janela['nome_vendedor'] == vendedor]['codigo_cliente'].nunique()
         df_bi_vendedor = df_filtrado[df_filtrado['nome_vendedor'] == vendedor]
         clientes_pos = df_bi_vendedor[df_bi_vendedor['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
@@ -555,12 +533,11 @@ elif opcao == "👥 Performance Vendedor":
         cobertura_media_vend = cobertura.mean() if len(cobertura) > 0 else 0
         cobertura_total_vend = df_bi_vendedor[['codigo_cliente', 'Nome_Fabricante']].dropna().drop_duplicates().shape[0]
         pct_ativa_vend = (clientes_pos / clientes_ativos_hist * 100) if clientes_ativos_hist > 0 else 0
-        pct_total_vend = (clientes_pos / clientes_carteira * 100) if clientes_carteira > 0 else 0
         perf_list.append({
             'Vendedor': vendedor, 'Pasta': pasta_v,
-            'Total_Clientes': clientes_carteira, 'Clientes_Ativos_Hist': clientes_ativos_hist,
+            'Clientes_Ativos_Hist': clientes_ativos_hist,
             'Clientes_Positivados': clientes_pos,
-            '%_Positivação_Ativa': round(pct_ativa_vend, 1), '%_Positivação_Total': round(pct_total_vend, 1),
+            '%_Positivação_Ativa': round(pct_ativa_vend, 1),
             'Cobertura_Media': round(cobertura_media_vend, 1), 'Cobertura_Total': cobertura_total_vend
         })
     perf_vendedor = pd.DataFrame(perf_list).sort_values('%_Positivação_Ativa', ascending=False)
@@ -573,14 +550,6 @@ elif opcao == "👥 Performance Vendedor":
     fig_ativa.update_layout(xaxis_title="", yaxis_title="% Positivação", yaxis_range=[0, 105])
     st.plotly_chart(fig_ativa, use_container_width=True)
 
-    fig_total = px.bar(perf_vendedor, x='Vendedor', y='%_Positivação_Total', title='% Positivação (Carteira Total)',
-                       text=perf_vendedor['%_Positivação_Total'].apply(lambda x: f'{x:.1f}%'),
-                       color='%_Positivação_Total', color_continuous_scale='Blues')
-    fig_total.add_hline(y=meta_total, line_dash="dash", line_color="red", annotation_text=f"Meta {meta_total}%")
-    fig_total.update_traces(textposition='outside')
-    fig_total.update_layout(xaxis_title="", yaxis_title="% Positivação", yaxis_range=[0, 105])
-    st.plotly_chart(fig_total, use_container_width=True)
-
     fig_cob = px.bar(perf_vendedor, x='Vendedor', y='Cobertura_Media', title='Cobertura Média por Vendedor',
                      text=perf_vendedor['Cobertura_Media'].apply(lambda x: f'{x:.1f}'),
                      color='Cobertura_Media', color_continuous_scale='Oranges')
@@ -588,8 +557,8 @@ elif opcao == "👥 Performance Vendedor":
     fig_cob.update_layout(xaxis_title="", yaxis_title="Indústrias/Cliente")
     st.plotly_chart(fig_cob, use_container_width=True)
 
-    st.dataframe(perf_vendedor[['Vendedor', 'Pasta', 'Total_Clientes', 'Clientes_Ativos_Hist', 'Clientes_Positivados',
-                                '%_Positivação_Ativa', '%_Positivação_Total', 'Cobertura_Media', 'Cobertura_Total']],
+    st.dataframe(perf_vendedor[['Vendedor', 'Pasta', 'Clientes_Ativos_Hist', 'Clientes_Positivados',
+                                '%_Positivação_Ativa', 'Cobertura_Media', 'Cobertura_Total']],
                  use_container_width=True, hide_index=True)
 
 # ============================================================
