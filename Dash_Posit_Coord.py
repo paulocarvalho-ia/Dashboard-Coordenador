@@ -144,6 +144,7 @@ def load_data():
     df_bi['Ano'] = df_bi['Data'].dt.year
     df_bi['MŒs_Ano'] = df_bi['Data'].dt.to_period('M').astype(str)
 
+    # ✅ Conversão robusta de valores
     if 'Valor_Vendas' in df_bi.columns:
         def converter_valor(valor):
             if pd.isna(valor):
@@ -151,13 +152,15 @@ def load_data():
             s = str(valor).strip().replace('R$', '').replace(' ', '')
             if s == '':
                 return 0.0
+            # Se tem vírgula, assume formato brasileiro: remove pontos de milhar e vírgula vira decimal
             if ',' in s:
                 s = s.replace('.', '').replace(',', '.')
-            elif '.' in s:
-                if s.count('.') == 1:
-                    pass
-                else:
+            else:
+                # Se não tem vírgula, pode ser inteiro ou decimal com ponto
+                # Remove pontos de milhar se houver mais de um ponto
+                if s.count('.') > 1:
                     s = s.replace('.', '')
+                # Se houver um único ponto, assume decimal
             try:
                 return float(s)
             except:
@@ -477,18 +480,23 @@ elif opcao == "🟢 Softys Falcon":
         df_top = soma_6m[['Top_Key', 'Média 6M']].merge(soma_mes, on='Top_Key', how='left').fillna(0)
         df_top = df_top[df_top['Média 6M'] > 0]  # apenas clientes com venda no período 6M
 
-        # Mapear rótulo (prioridade coligação, senão cliente isolado)
+        # Mapeamento de chaves para rótulos: coligação usa o próprio nome, cliente isolado usa nome_cliente
         df_label = df_base[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao']].drop_duplicates()
         df_label['Cliente_Coligacao'] = df_label['Cliente_Coligacao'].astype(str).str.strip()
         df_label.loc[df_label['Cliente_Coligacao'].isin(['', 'nan', 'DIVERSOS', 'Diversos', 'diversos']), 'Cliente_Coligacao'] = df_label['codigo_cliente'].astype(str)
 
-        map_colig = df_label.drop_duplicates(subset=['Cliente_Coligacao']).set_index('Cliente_Coligacao')['nome_cliente'].to_dict()
+        # Conjunto de coligações válidas (que não são códigos de cliente)
+        coligacoes_validas = set(df_label['Cliente_Coligacao'].unique()) - set(df_label['codigo_cliente'].astype(str).unique())
+
+        # Mapa de códigos para nome do cliente (para clientes isolados)
         map_client = df_label.drop_duplicates(subset=['codigo_cliente']).set_index('codigo_cliente')['nome_cliente'].to_dict()
 
         def get_label(key):
-            if key in map_colig:
-                return map_colig[key]
+            # Se a chave for uma coligação válida, retorna a própria chave (nome da coligação)
+            if key in coligacoes_validas:
+                return key
             else:
+                # Senão, tenta como código de cliente isolado
                 return map_client.get(key, key)
 
         df_top['Cliente'] = df_top['Top_Key'].apply(get_label)
