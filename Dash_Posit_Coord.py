@@ -75,17 +75,16 @@ def load_data():
     df_base.columns = [str(col).strip() for col in df_base.columns]
     base_rename = {}
 
-    # 1️⃣ Prioridade para a nova coluna "Cliente_Coligação"
     col_nova_coligacao = None
     for col in df_base.columns:
-        if 'cliente' in normalizar_texto(col) and 'coligacao' in normalizar_texto(col):
+        col_norm = normalizar_texto(col)
+        if 'cliente' in col_norm and 'coligacao' in col_norm:
             col_nova_coligacao = col
             break
 
     if col_nova_coligacao:
         base_rename[col_nova_coligacao] = 'Cliente_Coligacao'
 
-    # 2️⃣ Renomear demais colunas (caso a antiga "Coligação" ainda exista, ela será ignorada)
     for col in df_base.columns:
         if col in base_rename:
             continue
@@ -107,14 +106,12 @@ def load_data():
 
     df_base = df_base.rename(columns=base_rename)
 
-    # Fallback: se 'nome_cliente' não existir
     if 'nome_cliente' not in df_base.columns:
         for col in df_base.columns:
             if normalizar_texto(col) == 'cliente':
                 df_base.rename(columns={col: 'nome_cliente'}, inplace=True)
                 break
 
-    # 3️⃣ Normalizar a coluna Cliente_Coligacao: strip e UPPER
     if 'Cliente_Coligacao' in df_base.columns:
         df_base['Cliente_Coligacao'] = df_base['Cliente_Coligacao'].astype(str).str.strip().str.upper()
 
@@ -434,118 +431,48 @@ if opcao == "🏠 Visão Geral":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# PÁGINA: SOFTYS FALCON (COM TOP 10 COLIGAÇÕES/CLIENTES)
+# PÁGINA: SOFTYS FALCON (DIAGNÓSTICO)
 # ============================================================
 elif opcao == "🟢 Softys Falcon":
+    st.subheader("Diagnóstico TOP 10 (temporário)")
+
     df_softys = df_relatorio_base[df_relatorio_base['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
 
-    if not df_softys.empty:
-        st.subheader("🟢 Foco Estratégico: Softys Falcon")
-
-        # Determinação do mês atual com base no filtro global
-        if mes_selecionado != "Todos":
-            mes_num = int(mes_selecionado.split(' - ')[0])
-            anos_do_mes = df_softys[df_softys['MŒs'] == mes_num]['Ano'].unique()
-            ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
-            mes_atual_num = mes_num
-        else:
-            if not df_softys.empty:
-                ultimo_periodo = df_softys['MŒs_Ano'].max()
-                ano_ref = int(ultimo_periodo.split('-')[0])
-                mes_atual_num = int(ultimo_periodo.split('-')[1])
-            else:
-                st.warning("Nenhum dado disponível.")
-                st.stop()
-
-        mes_atual_str = f"{ano_ref}-{mes_atual_num:02d}"
-
-        # Meses anteriores
-        meses_6m = []
-        for i in range(1, 7):
-            mes = mes_atual_num - i
-            ano = ano_ref
-            while mes <= 0:
-                mes += 12
-                ano -= 1
-            meses_6m.append(f"{ano}-{mes:02d}")
-
-        df_top_mes = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]
-        df_top_6m = df_softys[df_softys['MŒs_Ano'].isin(meses_6m)]
-
-        # Agrupamento direto pela coluna "Cliente_Coligacao" (já contém a lógica de rótulo desejada)
-        soma_mes = df_top_mes.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
-        soma_mes.columns = ['Cliente', 'Mês Atual']
-        soma_6m = df_top_6m.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
-        soma_6m.columns = ['Cliente', 'Total 6M']
-        soma_6m['Média 6M'] = soma_6m['Total 6M'] / 6
-
-        # Merge OUTER para incluir clientes sem venda no mês atual
-        df_top = soma_6m[['Cliente', 'Média 6M']].merge(soma_mes, on='Cliente', how='left').fillna(0)
-        df_top = df_top[df_top['Média 6M'] > 0]  # apenas clientes com venda no período 6M
-
-        # Ordenar pela média 6M decrescente e pegar top 10
-        df_top = df_top.sort_values('Média 6M', ascending=False).head(10)
-
-        # Linha de total
-        total_media = df_top['Média 6M'].sum()
-        total_mes = df_top['Mês Atual'].sum()
-
-        # Exibição formatada
-        df_top_display = df_top.copy()
-        df_top_display['Média 6M'] = df_top_display['Média 6M'].apply(formatar_numero_br)
-        df_top_display['Mês Atual'] = df_top_display['Mês Atual'].apply(formatar_numero_br)
-        df_top_display.loc['TOTAL'] = ['TOTAL', formatar_numero_br(total_media), formatar_numero_br(total_mes)]
-        df_top_display.reset_index(drop=True, inplace=True)
-
-        # Gráfico
-        fig_top = go.Figure()
-        fig_top.add_trace(go.Bar(
-            x=df_top['Cliente'],
-            y=df_top['Média 6M'],
-            name='Média 6M',
-            marker_color='#FFA000',
-            text=df_top['Média 6M'].apply(formatar_numero_br),
-            textposition='outside'
-        ))
-        fig_top.add_trace(go.Bar(
-            x=df_top['Cliente'],
-            y=df_top['Mês Atual'],
-            name='Mês Atual',
-            marker_color='#2E8B57',
-            text=df_top['Mês Atual'].apply(formatar_numero_br),
-            textposition='outside'
-        ))
-        fig_top.update_layout(
-            title='TOP 10 Coligações/Clientes - Média 6 Meses Anteriores vs Mês Atual',
-            barmode='group',
-            yaxis_title='Valor de Vendas',
-            xaxis_title='Cliente'
-        )
-        st.plotly_chart(fig_top, use_container_width=True)
-        st.dataframe(df_top_display, use_container_width=True, hide_index=True)
-
-        # Batalha Naval Softys (mantida)
-        st.markdown("**Batalha Naval Softys Falcon — Clientes que compraram**")
-        df_softys_ano = df_softys[(df_softys['Ano'] == ano_ref) & (df_softys['MŒs'] <= mes_atual_num)]
-        df_softys_clientes = df_softys_ano[['codigo_cliente', 'nome_cliente', 'Municipio',
-                                            'Cliente_Coligacao', 'nome_vendedor', 'Categoria']].drop_duplicates()
-        clientes_pivot = df_softys_clientes.pivot_table(
-            index=['codigo_cliente', 'nome_cliente', 'Municipio', 'Cliente_Coligacao', 'nome_vendedor'],
-            columns='Categoria', aggfunc='size', fill_value=0
-        ).reset_index()
-        cat_cols = [c for c in clientes_pivot.columns if c not in ['codigo_cliente', 'nome_cliente',
-                                                                    'Municipio', 'Cliente_Coligacao', 'nome_vendedor']]
-        clientes_pivot[cat_cols] = (clientes_pivot[cat_cols] > 0).astype(int)
-        clientes_pivot['Total'] = clientes_pivot[cat_cols].sum(axis=1)
-        with st.expander("Visualizar Batalha Naval", expanded=False):
-            st.dataframe(clientes_pivot, use_container_width=True, hide_index=True, height=400)
-
-        output_bn = BytesIO()
-        with pd.ExcelWriter(output_bn, engine='openpyxl') as writer:
-            clientes_pivot.to_excel(writer, index=False, sheet_name='Batalha Naval Softys')
-        st.download_button("📥 Baixar Excel (Batalha Naval)", data=output_bn.getvalue(),
-                           file_name=f'batalha_naval_softys_{datetime.now().strftime("%Y%m%d")}.xlsx',
-                           mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                           use_container_width=True)
+    if mes_selecionado != "Todos":
+        mes_num = int(mes_selecionado.split(' - ')[0])
+        anos_do_mes = df_softys[df_softys['MŒs'] == mes_num]['Ano'].unique()
+        ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
     else:
-        st.warning("Nenhum dado da Softys Falcon para os filtros atuais.")
+        ano_ref = df_softys['Ano'].max()
+        mes_num = df_softys[df_softys['Ano'] == ano_ref]['MŒs'].max()
+
+    mes_atual_str = f"{ano_ref}-{mes_num:02d}"
+
+    meses_6m = []
+    for i in range(1, 7):
+        mes = mes_num - i
+        ano = ano_ref
+        while mes <= 0:
+            mes += 12
+            ano -= 1
+        meses_6m.append(f"{ano}-{mes:02d}")
+
+    df_mes = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]
+    df_6m = df_softys[df_softys['MŒs_Ano'].isin(meses_6m)]
+
+    soma_mes = df_mes.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+    soma_mes.columns = ['Cliente', 'Mês Atual']
+    soma_6m = df_6m.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+    soma_6m.columns = ['Cliente', 'Total 6M']
+    soma_6m['Média 6M'] = soma_6m['Total 6M'] / 6
+
+    df_top = soma_6m[['Cliente', 'Média 6M']].merge(soma_mes, on='Cliente', how='left').fillna(0)
+
+    st.write("Valores da coligação DROGARIA UNICA FARMA:")
+    st.dataframe(df_top[df_top['Cliente'].str.contains('UNICA FARMA', case=False, na=False)])
+
+    st.write("Top 5 por média 6M:")
+    df_top_sorted = df_top.sort_values('Média 6M', ascending=False).head(5)
+    st.dataframe(df_top_sorted)
+
+    st.stop()
