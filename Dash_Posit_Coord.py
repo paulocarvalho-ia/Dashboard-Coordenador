@@ -75,6 +75,7 @@ def load_data():
     df_base.columns = [str(col).strip() for col in df_base.columns]
     base_rename = {}
 
+    # Priorizar coluna "Cliente_Coligação" (nova)
     col_nova_coligacao = None
     for col in df_base.columns:
         col_norm = normalizar_texto(col)
@@ -431,38 +432,701 @@ if opcao == "🏠 Visão Geral":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# PÁGINA: SOFTYS FALCON (DIAGNÓSTICO ESPECÍFICO)
+# PÁGINA: PERFORMANCE POR VENDEDOR
+# ============================================================
+elif opcao == "👥 Performance Vendedor":
+    df_base_perf = df_base.copy()
+    if coordenador_selecionado != "Todos":
+        df_base_perf = df_base_perf[df_base_perf['Nome_Coordenador'] == coordenador_selecionado]
+    if vendedor_selecionado != "Todos":
+        df_base_perf = df_base_perf[df_base_perf['nome_vendedor_base'] == vendedor_selecionado]
+    if pasta_selecionada != "Todas":
+        vendedores_da_pasta = [v for v in df_base_perf['nome_vendedor_base'].unique()
+                               if vendedor_pasta.get(v) == pasta_selecionada]
+        df_base_perf = df_base_perf[df_base_perf['nome_vendedor_base'].isin(vendedores_da_pasta)]
+    if municipio_selecionado:
+        df_base_perf = df_base_perf[df_base_perf['Municipio'].isin(municipio_selecionado)]
+    if canal_selecionado:
+        df_base_perf = df_base_perf[df_base_perf['Canal'].isin(canal_selecionado)]
+    if segmento_selecionado:
+        df_base_perf = df_base_perf[df_base_perf['Segmento'].isin(segmento_selecionado)]
+
+    if vendedor_selecionado != "Todos":
+        vendedores_base = [vendedor_selecionado]
+    else:
+        vendedores_base = df_filtrado['nome_vendedor'].dropna().unique()
+
+    perf_list = []
+    for vendedor in vendedores_base:
+        pasta_v = vendedor_pasta.get(vendedor, "")
+        clientes_ativos_hist = df_historico_janela[df_historico_janela['nome_vendedor'] == vendedor]['codigo_cliente'].nunique()
+        df_bi_vendedor = df_filtrado[df_filtrado['nome_vendedor'] == vendedor]
+        clientes_pos = df_bi_vendedor[df_bi_vendedor['Nome_Fabricante'].notna()]['codigo_cliente'].nunique()
+        cobertura = df_bi_vendedor.groupby('codigo_cliente')['Nome_Fabricante'].nunique()
+        cobertura_media_vend = cobertura.mean() if len(cobertura) > 0 else 0
+        cobertura_total_vend = df_bi_vendedor[['codigo_cliente', 'Nome_Fabricante']].dropna().drop_duplicates().shape[0]
+        pct_ativa_vend = (clientes_pos / clientes_ativos_hist * 100) if clientes_ativos_hist > 0 else 0
+        perf_list.append({
+            'Vendedor': vendedor, 'Pasta': pasta_v,
+            'Clientes_Ativos_Hist': clientes_ativos_hist,
+            'Clientes_Positivados': clientes_pos,
+            '%_Positivação_Ativa': round(pct_ativa_vend, 1),
+            'Cobertura_Media': round(cobertura_media_vend, 1),
+            'Cobertura_Total': cobertura_total_vend
+        })
+    perf_vendedor = pd.DataFrame(perf_list).sort_values('%_Positivação_Ativa', ascending=False)
+
+    fig_ativa = px.bar(perf_vendedor, x='Vendedor', y='%_Positivação_Ativa', title='% Positivação (Base Ativa)',
+                       text=perf_vendedor['%_Positivação_Ativa'].apply(lambda x: f'{x:.1f}%'),
+                       color='%_Positivação_Ativa', color_continuous_scale='Greens')
+    fig_ativa.add_hline(y=meta_ativa, line_dash="dash", line_color="red", annotation_text=f"Meta {meta_ativa}%")
+    fig_ativa.update_traces(textposition='outside')
+    fig_ativa.update_layout(xaxis_title="", yaxis_title="% Positivação", yaxis_range=[0, 105])
+    st.plotly_chart(fig_ativa, use_container_width=True)
+
+    fig_cob = px.bar(perf_vendedor, x='Vendedor', y='Cobertura_Media', title='Cobertura Média por Vendedor',
+                     text=perf_vendedor['Cobertura_Media'].apply(lambda x: f'{x:.1f}'),
+                     color='Cobertura_Media', color_continuous_scale='Oranges')
+    fig_cob.update_traces(textposition='outside')
+    fig_cob.update_layout(xaxis_title="", yaxis_title="Indústrias/Cliente")
+    st.plotly_chart(fig_cob, use_container_width=True)
+
+    st.dataframe(perf_vendedor[['Vendedor', 'Pasta', 'Clientes_Ativos_Hist', 'Clientes_Positivados',
+                                '%_Positivação_Ativa', 'Cobertura_Media', 'Cobertura_Total']],
+                 use_container_width=True, hide_index=True)
+
+# ============================================================
+# PÁGINA: POSITIVAÇÃO POR MUNICÍPIO
+# ============================================================
+elif opcao == "📍 Positivação por Município":
+    st.subheader("📍 Positivação por Município")
+    df_munic = df_filtrado.groupby('Municipio')['codigo_cliente'].nunique().reset_index()
+    df_munic.columns = ['Município', 'Clientes Positivados']
+    df_munic = df_munic.sort_values('Clientes Positivados', ascending=False)
+
+    fig_munic = px.bar(df_munic, x='Município', y='Clientes Positivados', text='Clientes Positivados',
+                       color='Clientes Positivados', color_continuous_scale='Blues')
+    fig_munic.update_traces(textposition='outside')
+    fig_munic.update_layout(xaxis_title="", yaxis_title="Clientes Positivados")
+    st.plotly_chart(fig_munic, use_container_width=True)
+
+    st.dataframe(df_munic, use_container_width=True, hide_index=True)
+
+# ============================================================
+# PÁGINA: POSITIVAÇÃO POR SEGMENTO
+# ============================================================
+elif opcao == "🏷️ Positivação por Segmento":
+    st.subheader("🏷️ Positivação por Segmento")
+    df_seg = df_filtrado.groupby('Segmento')['codigo_cliente'].nunique().reset_index()
+    df_seg.columns = ['Segmento', 'Clientes Positivados']
+    df_seg = df_seg.sort_values('Clientes Positivados', ascending=False)
+
+    fig_seg = px.bar(df_seg, x='Segmento', y='Clientes Positivados', text='Clientes Positivados',
+                     color='Clientes Positivados', color_continuous_scale='Greens')
+    fig_seg.update_traces(textposition='outside')
+    fig_seg.update_layout(xaxis_title="", yaxis_title="Clientes Positivados")
+    st.plotly_chart(fig_seg, use_container_width=True)
+
+    st.dataframe(df_seg, use_container_width=True, hide_index=True)
+
+# ============================================================
+# PÁGINA: OPORTUNIDADES CRUZADAS (COM PERÍODO)
+# ============================================================
+elif opcao == "🔀 Oportunidades Cruzadas":
+    st.subheader("🔀 Oportunidades Cruzadas")
+
+    meses_oportunidades = sorted(df_relatorio_base['MŒs_Ano'].dropna().unique())
+    if not meses_oportunidades:
+        st.warning("Nenhum dado disponível para análise.")
+        st.stop()
+
+    col_per1, col_per2 = st.columns(2)
+    with col_per1:
+        mes_op_inicio = st.selectbox("Mês início:", options=meses_oportunidades, index=0, key='mes_op_inicio')
+    with col_per2:
+        mes_op_fim = st.selectbox("Mês fim:", options=meses_oportunidades, index=len(meses_oportunidades)-1, key='mes_op_fim')
+
+    if mes_op_inicio > mes_op_fim:
+        st.warning("Mês início deve ser menor ou igual ao mês fim.")
+        st.stop()
+
+    df_analise = df_relatorio_base[
+        (df_relatorio_base['MŒs_Ano'] >= mes_op_inicio) &
+        (df_relatorio_base['MŒs_Ano'] <= mes_op_fim)
+    ].copy()
+
+    col_op1, col_op2 = st.columns(2)
+    with col_op1:
+        st.markdown("**Indústrias da Base (compradas)**")
+        base_op = st.multiselect("Selecione uma ou mais indústrias que o cliente comprou:",
+                                 options=INDUSTRIAS_DISPONIVEIS, key='base_cruzada')
+    with col_op2:
+        st.markdown("**Indústrias de Comparação (não compradas)**")
+        comp_op = st.multiselect("Selecione uma ou mais indústrias que o cliente NÃO comprou:",
+                                 options=INDUSTRIAS_DISPONIVEIS, key='comp_cruzada')
+
+    if base_op and comp_op:
+        base_sem_vendas = [ind for ind in base_op if df_analise[df_analise['Nome_Fabricante'] == ind].empty]
+        if base_sem_vendas:
+            st.warning(f"As seguintes indústrias da base não tiveram vendas no período selecionado: {', '.join(base_sem_vendas)}.")
+            st.info("Nenhum cliente pode atender aos critérios com essas indústrias.")
+        else:
+            clientes_base = set(df_analise[df_analise['Nome_Fabricante'] == base_op[0]]['codigo_cliente'].unique())
+            for ind in base_op[1:]:
+                clientes_base &= set(df_analise[df_analise['Nome_Fabricante'] == ind]['codigo_cliente'].unique())
+
+            clientes_comp = set(df_analise['codigo_cliente'].unique())
+            for ind in comp_op:
+                clientes_comp -= set(df_analise[df_analise['Nome_Fabricante'] == ind]['codigo_cliente'].unique())
+
+            clientes_oportunidade = clientes_base.intersection(clientes_comp)
+
+            if clientes_oportunidade:
+                st.success(f"🔎 {len(clientes_oportunidade)} clientes compraram da(s) indústria(s) selecionada(s) e não compraram da(s) indústria(s) comparada(s).")
+                df_op = df_base[df_base['codigo_cliente'].isin(clientes_oportunidade)][
+                    ['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'nome_vendedor_base']
+                ]
+                df_op.columns = ['Código', 'Nome', 'Coligação', 'Vendedor']
+                st.dataframe(df_op, use_container_width=True, hide_index=True)
+
+                output_op = BytesIO()
+                with pd.ExcelWriter(output_op, engine='openpyxl') as writer:
+                    df_op.to_excel(writer, index=False, sheet_name='Oportunidades')
+                st.download_button("📥 Baixar Excel (Oportunidades)", data=output_op.getvalue(),
+                                   file_name=f'oportunidades_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
+                                   mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                   use_container_width=True)
+            else:
+                st.info("Nenhum cliente atende aos critérios de oportunidade cruzada com os filtros atuais.")
+    else:
+        st.info("Selecione ao menos uma indústria em cada lista para visualizar as oportunidades cruzadas.")
+
+# ============================================================
+# PÁGINA: SOFTYS FALCON (SEM TOP 10)
 # ============================================================
 elif opcao == "🟢 Softys Falcon":
-    st.subheader("Diagnóstico Softys Falcon - Coligação DROGARIA UNICA FARMA")
-
     df_softys = df_relatorio_base[df_relatorio_base['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
 
-    # Mostrar valores únicos de Cliente_Coligacao que contêm UNICA
-    st.write("Valores únicos de coligação contendo 'UNICA':")
-    valores_unicos = df_softys[df_softys['Cliente_Coligacao'].str.contains('UNICA', case=False, na=False)]['Cliente_Coligacao'].unique()
-    st.write(valores_unicos)
+    if not df_softys.empty:
+        st.subheader("🟢 Foco Estratégico: Softys Falcon")
 
-    # Filtrar exatamente DROGARIA UNICA FARMA
-    df_una = df_softys[df_softys['Cliente_Coligacao'] == 'DROGARIA UNICA FARMA'].copy()
-
-    st.write(f"Linhas exatamente 'DROGARIA UNICA FARMA': {len(df_una)}")
-    if not df_una.empty:
-        st.dataframe(df_una[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'MŒs_Ano', 'Valor_Vendas']].head(10))
-
-        # Soma por mês
-        soma_por_mes_una = df_una.groupby('MŒs_Ano')['Valor_Vendas'].sum().reset_index()
-        st.write("Soma por mês para 'DROGARIA UNICA FARMA' (Softys Falcon):")
-        st.dataframe(soma_por_mes_una)
-
-        # Soma de setembro (se existir)
-        if '2026-09' in soma_por_mes_una['MŒs_Ano'].values:
-            soma_set = soma_por_mes_una[soma_por_mes_una['MŒs_Ano'] == '2026-09']['Valor_Vendas'].iloc[0]
-            st.write(f"Soma setembro/2026: {formatar_numero_br(soma_set)}")
+        # Determinação do mês atual com base no filtro global
+        if mes_selecionado != "Todos":
+            mes_num = int(mes_selecionado.split(' - ')[0])
+            anos_do_mes = df_softys[df_softys['MŒs'] == mes_num]['Ano'].unique()
+            ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
+            mes_atual_num = mes_num
         else:
-            st.warning("Setembro/2026 não encontrado nessa coligação.")
+            ano_ref = df_softys['Ano'].max()
+            mes_atual_num = df_softys.loc[df_softys['Ano'] == ano_ref, 'MŒs'].max()
 
+        meses_ano = [f"{ano_ref}-{m:02d}" for m in range(1, mes_atual_num + 1)]
+        df_softys_ano = df_softys[(df_softys['Ano'] == ano_ref) & (df_softys['MŒs'] <= mes_atual_num)]
+
+        monthly_totals = df_softys_ano.groupby('MŒs_Ano')['codigo_cliente'].nunique().reset_index()
+        monthly_totals.columns = ['Mês', 'Clientes']
+        monthly_totals = monthly_totals[monthly_totals['Mês'].isin(meses_ano)]
+
+        ytd_total = df_softys_ano['codigo_cliente'].nunique()
+
+        # Gráfico mensal + YTD
+        df_mensal_softys = monthly_totals[['Mês', 'Clientes']].copy()
+        df_mensal_softys['Rótulo'] = df_mensal_softys['Mês'].apply(formatar_mes_rotulo)
+
+        fig_softys = go.Figure()
+        fig_softys.add_trace(go.Bar(
+            x=df_mensal_softys['Rótulo'],
+            y=df_mensal_softys['Clientes'],
+            text=df_mensal_softys['Clientes'],
+            textposition='outside',
+            marker_color='#2E8B57',
+            name='Mensal',
+            hovertemplate='Mês: %{x}<br>Clientes: %{y}'
+        ))
+        fig_softys.add_trace(go.Bar(
+            x=['YTD'],
+            y=[ytd_total],
+            text=[ytd_total],
+            textposition='outside',
+            marker_color='#D32F2F',
+            name='YTD',
+            hovertemplate='YTD<br>Clientes: %{y}'
+        ))
+        fig_softys.update_layout(
+            title='Positivação Softys Falcon (Mensal + YTD)',
+            yaxis=dict(title='Clientes'),
+            barmode='group',
+            legend=dict(x=0.01, y=0.99)
+        )
+        st.plotly_chart(fig_softys, use_container_width=True)
+
+        # Tabela mensal por categoria
+        pivot_mensal = df_softys_ano.pivot_table(index='Categoria', columns='MŒs_Ano',
+                                                  values='codigo_cliente', aggfunc='nunique', fill_value=0)
+        pivot_mensal = pivot_mensal.reindex(columns=meses_ano, fill_value=0)
+        ytd_series = df_softys_ano.groupby('Categoria')['codigo_cliente'].nunique()
+        tabela = pivot_mensal.copy()
+        tabela['YTD'] = ytd_series
+        tabela = tabela.reset_index().fillna(0)
+
+        rename_cols = {col: formatar_mes_rotulo(col) for col in meses_ano}
+        tabela.rename(columns=rename_cols, inplace=True)
+        ordered_cols = ['Categoria'] + list(rename_cols.values()) + ['YTD']
+        tabela = tabela[ordered_cols]
+
+        st.markdown("**Positivação por Categoria (todos os meses do ano + YTD)**")
+        st.dataframe(tabela, use_container_width=True, hide_index=True)
+
+        output_mensal = BytesIO()
+        with pd.ExcelWriter(output_mensal, engine='openpyxl') as writer:
+            tabela.to_excel(writer, index=False, sheet_name='Softys Mensal')
+        st.download_button("📥 Baixar Excel (Mensal)", data=output_mensal.getvalue(),
+                           file_name=f'softys_mensal_{datetime.now().strftime("%Y%m%d")}.xlsx',
+                           mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                           use_container_width=True)
+
+        # Batalha Naval Softys
+        st.markdown("**Batalha Naval Softys Falcon — Clientes que compraram**")
+        df_softys_clientes = df_softys_ano[['codigo_cliente', 'nome_cliente', 'Municipio',
+                                            'Cliente_Coligacao', 'nome_vendedor', 'Categoria']].drop_duplicates()
+        clientes_pivot = df_softys_clientes.pivot_table(
+            index=['codigo_cliente', 'nome_cliente', 'Municipio', 'Cliente_Coligacao', 'nome_vendedor'],
+            columns='Categoria', aggfunc='size', fill_value=0
+        ).reset_index()
+        cat_cols = [c for c in clientes_pivot.columns if c not in ['codigo_cliente', 'nome_cliente',
+                                                                    'Municipio', 'Cliente_Coligacao', 'nome_vendedor']]
+        clientes_pivot[cat_cols] = (clientes_pivot[cat_cols] > 0).astype(int)
+        clientes_pivot['Total'] = clientes_pivot[cat_cols].sum(axis=1)
+
+        with st.expander("Visualizar Batalha Naval", expanded=False):
+            st.dataframe(clientes_pivot, use_container_width=True, hide_index=True, height=400)
+
+        output_bn = BytesIO()
+        with pd.ExcelWriter(output_bn, engine='openpyxl') as writer:
+            clientes_pivot.to_excel(writer, index=False, sheet_name='Batalha Naval Softys')
+        st.download_button("📥 Baixar Excel (Batalha Naval)", data=output_bn.getvalue(),
+                           file_name=f'batalha_naval_softys_{datetime.now().strftime("%Y%m%d")}.xlsx',
+                           mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                           use_container_width=True)
     else:
-        st.warning("Nenhuma linha com 'DROGARIA UNICA FARMA' exata.")
+        st.warning("Nenhum dado da Softys Falcon para os filtros atuais.")
 
-    st.stop()
+# ============================================================
+# PÁGINA: KENVUE PERFUMARIA (COM METAS E FILTROS CORRETOS)
+# ============================================================
+elif opcao == "🟠 Kenvue Perfumaria":
+    st.subheader("🟠 Foco Estratégico: Kenvue no Canal Perfumaria")
+
+    vendedores_kenvue = [v for v in df_base['nome_vendedor_base'].unique()
+                         if vendedor_pasta.get(v) in ['PA', 'PVA']
+                         and v in df_historico['nome_vendedor'].unique()]
+
+    df_perfumarias_ativas = df_historico_janela[
+        (df_historico_janela['Canal'] == 'PERFUMARIA') &
+        (df_historico_janela['nome_vendedor'].isin(vendedores_kenvue))
+    ].copy()
+
+    if not df_perfumarias_ativas.empty:
+        df_kenvue_mes = df_filtrado[
+            (df_filtrado['Nome_Fabricante'] == 'KENVUE') &
+            (df_filtrado['Canal'] == 'PERFUMARIA') &
+            (df_filtrado['nome_vendedor'].isin(vendedores_kenvue))
+        ].copy()
+
+        df_metas = df_meta_kenvue.copy()
+        df_metas.columns = [str(c).strip() for c in df_metas.columns]
+        col_vend_meta = next((c for c in df_metas.columns if 'vendedor' in c.lower()), None)
+        col_valor_meta = next((c for c in df_metas.columns if 'meta' in c.lower()), None)
+        if col_vend_meta and col_valor_meta:
+            df_metas = df_metas.rename(columns={col_vend_meta: 'Vendedor', col_valor_meta: 'Meta'})
+            df_metas['Vendedor'] = df_metas['Vendedor'].astype(str).str.strip()
+            df_metas['Meta'] = pd.to_numeric(df_metas['Meta'], errors='coerce').fillna(0)
+            df_metas = df_metas[df_metas['Vendedor'].isin(vendedores_kenvue)]
+        else:
+            df_metas = pd.DataFrame(columns=['Vendedor', 'Meta'])
+
+        if not df_kenvue_mes.empty:
+            clientes_kenvue_mes = df_kenvue_mes['codigo_cliente'].unique()
+            total_perfumarias_ativas = df_perfumarias_ativas['codigo_cliente'].nunique()
+            atendidos = len(clientes_kenvue_mes)
+            pct_atendido = (atendidos / total_perfumarias_ativas * 100) if total_perfumarias_ativas > 0 else 0
+
+            col_m1, col_m2 = st.columns(2)
+            col_m1.metric("Perfumarias Ativas (janela móvel)", total_perfumarias_ativas)
+            col_m2.metric("Atendidas com Kenvue (mês atual)", f"{atendidos} ({pct_atendido:.1f}%)")
+
+            realizado_por_vendedor = df_kenvue_mes.groupby('nome_vendedor')['codigo_cliente'].nunique().reset_index()
+            realizado_por_vendedor.columns = ['Vendedor', 'Realizado']
+            realizado_por_vendedor['Vendedor'] = realizado_por_vendedor['Vendedor'].astype(str).str.strip()
+
+            df_meta_vendedor = df_metas.merge(realizado_por_vendedor, on='Vendedor', how='left')
+            df_meta_vendedor['Realizado'] = df_meta_vendedor['Realizado'].fillna(0).astype(int)
+            df_meta_vendedor['Atingimento %'] = (df_meta_vendedor['Realizado'] / df_meta_vendedor['Meta'] * 100).round(1)
+            df_meta_vendedor['Atingimento %'] = df_meta_vendedor['Atingimento %'].fillna(0)
+            df_meta_vendedor = df_meta_vendedor[df_meta_vendedor['Meta'] > 0]
+            df_meta_vendedor = df_meta_vendedor.sort_values('Vendedor')
+
+            fig_meta_pct = px.bar(
+                df_meta_vendedor,
+                x='Vendedor',
+                y='Atingimento %',
+                title='% de Atingimento da Meta por Vendedor',
+                text='Atingimento %',
+                color='Atingimento %',
+                color_continuous_scale='Greens'
+            )
+            fig_meta_pct.update_traces(textposition='outside')
+            fig_meta_pct.update_layout(yaxis_range=[0, max(120, df_meta_vendedor['Atingimento %'].max()*1.1)])
+            st.plotly_chart(fig_meta_pct, use_container_width=True)
+
+            vendedores_com_meta = df_meta_vendedor['Vendedor'].unique().tolist()
+            lista_ken = []
+            for vend in vendedores_com_meta:
+                total_vend = df_perfumarias_ativas[df_perfumarias_ativas['nome_vendedor'] == vend]['codigo_cliente'].nunique()
+                atend_vend = df_kenvue_mes[df_kenvue_mes['nome_vendedor'] == vend]['codigo_cliente'].nunique()
+                meta_vend = df_metas[df_metas['Vendedor'] == vend]['Meta'].sum() if not df_metas.empty else 0
+                pct_vend = (atend_vend / meta_vend * 100) if meta_vend > 0 else 0
+                lista_ken.append({
+                    'Vendedor': vend,
+                    'Perfumarias Ativas': total_vend,
+                    'Meta': meta_vend,
+                    'Atendidas Kenvue': atend_vend,
+                    '% Atingimento': round(pct_vend, 1)
+                })
+            df_ken_vend = pd.DataFrame(lista_ken)
+            st.markdown("**Meta por Vendedor**")
+            st.dataframe(df_ken_vend, use_container_width=True, hide_index=True)
+
+            # Visão por Coordenador
+            df_vend_coord = df_base[['nome_vendedor_base', 'Nome_Coordenador']].drop_duplicates()
+            df_vend_coord.columns = ['Vendedor', 'Coordenador']
+            df_vend_coord['Vendedor'] = df_vend_coord['Vendedor'].astype(str).str.strip()
+            df_vend_coord = df_vend_coord[df_vend_coord['Vendedor'].isin(vendedores_kenvue)]
+
+            df_meta_coord = df_meta_vendedor.merge(df_vend_coord, on='Vendedor', how='left')
+            coord_group = df_meta_coord.groupby('Coordenador').agg(
+                Meta=('Meta', 'sum'),
+                Realizado=('Realizado', 'sum')
+            ).reset_index()
+            coord_group['Atingimento %'] = (coord_group['Realizado'] / coord_group['Meta'] * 100).round(1)
+            coord_group = coord_group.sort_values('Coordenador')
+
+            fig_meta_coord = px.bar(
+                coord_group,
+                x='Coordenador',
+                y='Atingimento %',
+                title='% de Atingimento da Meta por Coordenador',
+                text='Atingimento %',
+                color='Atingimento %',
+                color_continuous_scale='Blues'
+            )
+            fig_meta_coord.update_traces(textposition='outside')
+            fig_meta_coord.update_layout(yaxis_range=[0, max(120, coord_group['Atingimento %'].max()*1.1)])
+            st.plotly_chart(fig_meta_coord, use_container_width=True)
+
+            st.markdown("**Meta por Coordenador**")
+            st.dataframe(coord_group, use_container_width=True, hide_index=True)
+
+            # Volume de Vendas por Coligação (somente Kenvue)
+            st.markdown("**Volume de Vendas por Coligação (Perfumaria - Kenvue)**")
+            if mes_selecionado != "Todos":
+                mes_num = int(mes_selecionado.split(' - ')[0])
+                anos_do_mes = df_historico[df_historico['MŒs'] == mes_num]['Ano'].unique()
+                ano_atual = max(anos_do_mes) if len(anos_do_mes) > 0 else df_historico['Ano'].max()
+                mes_atual_str = f"{ano_atual}-{mes_num:02d}"
+            else:
+                mes_atual_str = df_historico['MŒs_Ano'].max() if not df_historico.empty else None
+
+            if mes_atual_str:
+                ano_atual = int(mes_atual_str.split('-')[0])
+                mes_num = int(mes_atual_str.split('-')[1])
+                if mes_num == 1:
+                    mes_ant_num = 12
+                    ano_ant = ano_atual - 1
+                else:
+                    mes_ant_num = mes_num - 1
+                    ano_ant = ano_atual
+                mes_ant_str = f"{ano_ant}-{mes_ant_num:02d}"
+
+                df_perf_vendas = df_historico[
+                    (df_historico['Canal'] == 'PERFUMARIA') &
+                    (df_historico['Nome_Fabricante'] == 'KENVUE')
+                ].copy()
+
+                df_vendas_mes_atual = df_perf_vendas[df_perf_vendas['MŒs_Ano'] == mes_atual_str]
+                df_vendas_mes_ant = df_perf_vendas[df_perf_vendas['MŒs_Ano'] == mes_ant_str]
+
+                if 'Valor_Vendas' in df_perf_vendas.columns:
+                    vendas_atual_colig = df_vendas_mes_atual.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+                    vendas_atual_colig.columns = ['Coligação', 'Mês Atual']
+                    vendas_ant_colig = df_vendas_mes_ant.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
+                    vendas_ant_colig.columns = ['Coligação', 'Mês Anterior']
+                else:
+                    vendas_atual_colig = df_vendas_mes_atual.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
+                    vendas_atual_colig.columns = ['Coligação', 'Mês Atual']
+                    vendas_ant_colig = df_vendas_mes_ant.groupby('Cliente_Coligacao')['codigo_cliente'].nunique().reset_index()
+                    vendas_ant_colig.columns = ['Coligação', 'Mês Anterior']
+
+                df_vol_colig = vendas_ant_colig.merge(vendas_atual_colig, on='Coligação', how='outer').fillna(0)
+                df_vol_colig = df_vol_colig.sort_values('Coligação')
+
+                fig_vol = go.Figure()
+                fig_vol.add_trace(go.Bar(x=df_vol_colig['Coligação'], y=df_vol_colig['Mês Anterior'],
+                                         name='Mês Anterior', marker_color='#FFA000'))
+                fig_vol.add_trace(go.Bar(x=df_vol_colig['Coligação'], y=df_vol_colig['Mês Atual'],
+                                         name='Mês Atual', marker_color='#2E8B57'))
+                fig_vol.update_layout(title='Volume de Vendas Kenvue por Coligação (Perfumaria)',
+                                      barmode='group', yaxis_title='Valor de Vendas', xaxis_title='Coligação')
+                st.plotly_chart(fig_vol, use_container_width=True)
+
+                df_vol_display = df_vol_colig.copy()
+                df_vol_display['Mês Anterior'] = df_vol_display['Mês Anterior'].apply(formatar_numero_br)
+                df_vol_display['Mês Atual'] = df_vol_display['Mês Atual'].apply(formatar_numero_br)
+                st.dataframe(df_vol_display, use_container_width=True, hide_index=True)
+
+            # Listas Chegamos / Não Chegamos
+            clientes_nao_atendidos = [c for c in df_perfumarias_ativas['codigo_cliente'].unique()
+                                      if c not in clientes_kenvue_mes]
+            df_base_kenvue = df_base[df_base['nome_vendedor_base'].isin(vendedores_kenvue)]
+            df_base_kenvue = df_base_kenvue.drop_duplicates(subset=['codigo_cliente'], keep='first')
+
+            col_ken1, col_ken2 = st.columns(2)
+            with col_ken1:
+                st.markdown(f"✅ **Chegamos** ({atendidos})")
+                df_chegamos = df_kenvue_mes[
+                    ['codigo_cliente', 'nome_cliente', 'Municipio', 'Cliente_Coligacao', 'nome_vendedor']
+                ].drop_duplicates()
+                df_chegamos.columns = ['Código', 'Nome', 'Município', 'Coligação', 'Vendedor']
+                st.dataframe(df_chegamos, use_container_width=True, hide_index=True)
+
+                output_cheg = BytesIO()
+                with pd.ExcelWriter(output_cheg, engine='openpyxl') as writer:
+                    df_chegamos.to_excel(writer, index=False, sheet_name='Chegamos')
+                st.download_button("📥 Baixar Excel (Chegamos)", data=output_cheg.getvalue(),
+                                   file_name=f'kenvue_chegamos_{datetime.now().strftime("%Y%m%d")}.xlsx',
+                                   mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                   use_container_width=True)
+
+            with col_ken2:
+                st.markdown(f"❌ **Não chegamos** ({len(clientes_nao_atendidos)})")
+                df_nao = df_base_kenvue[df_base_kenvue['codigo_cliente'].isin(clientes_nao_atendidos)][
+                    ['codigo_cliente', 'nome_cliente', 'Municipio', 'Cliente_Coligacao', 'nome_vendedor_base']
+                ]
+                df_nao.columns = ['Código', 'Nome', 'Município', 'Coligação', 'Vendedor']
+                st.dataframe(df_nao, use_container_width=True, hide_index=True)
+
+            output_kenv = BytesIO()
+            with pd.ExcelWriter(output_kenv, engine='openpyxl') as writer:
+                df_ken_vend.to_excel(writer, index=False, sheet_name='Meta Kenvue Vendedor')
+            st.download_button("📥 Baixar Excel (Meta por Vendedor)", data=output_kenv.getvalue(),
+                               file_name=f'kenvue_meta_vendedor_{datetime.now().strftime("%Y%m%d")}.xlsx',
+                               mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                               use_container_width=True)
+
+            output_kenc = BytesIO()
+            with pd.ExcelWriter(output_kenc, engine='openpyxl') as writer:
+                coord_group.to_excel(writer, index=False, sheet_name='Meta Kenvue Coordenador')
+            st.download_button("📥 Baixar Excel (Meta por Coordenador)", data=output_kenc.getvalue(),
+                               file_name=f'kenvue_meta_coordenador_{datetime.now().strftime("%Y%m%d")}.xlsx',
+                               mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                               use_container_width=True)
+        else:
+            st.warning("Nenhuma venda de Kenvue no mês atual para o canal Perfumaria.")
+    else:
+        st.warning("Nenhuma perfumaria ativa na janela móvel para os vendedores elegíveis (PA/PVA).")
+
+# ============================================================
+# PÁGINA: CENOURA & BRONZE
+# ============================================================
+elif opcao == "🟤 Cenoura & Bronze":
+    df_cenoura = df_relatorio_base[df_relatorio_base['Linha_Produto'] == 'CENOURA & BRONZE'].copy()
+
+    if not df_cenoura.empty:
+        st.subheader("🟤 Foco Estratégico: Linha Cenoura & Bronze")
+
+        if mes_selecionado != "Todos":
+            mes_num = int(mes_selecionado.split(' - ')[0])
+            anos_do_mes = df_cenoura[df_cenoura['MŒs'] == mes_num]['Ano'].unique()
+            ano_atual = max(anos_do_mes) if len(anos_do_mes) > 0 else df_cenoura['Ano'].max()
+            mes_atual_num = mes_num
+            months_window = [f"{a}-{m:02d}" for a, m in calcular_janela_movel(df_cenoura, mes_selecionado, janela_meses)[['Ano', 'MŒs']].drop_duplicates().itertuples(index=False, name=None)]
+            current_month_str = f"{ano_atual}-{mes_atual_num:02d}"
+        else:
+            months_window = sorted(df_cenoura['MŒs_Ano'].unique())
+            current_month_str = months_window[-1] if months_window else None
+
+        df_cenoura_window = df_cenoura[df_cenoura['MŒs_Ano'].isin(months_window)].copy()
+        df_cenoura_mes = df_cenoura[df_cenoura['MŒs_Ano'] == current_month_str].copy() if current_month_str else pd.DataFrame()
+
+        vendedores_cen = df_cenoura['nome_vendedor'].dropna().unique()
+        lista_cen = []
+        for vend in vendedores_cen:
+            df_vend_window = df_cenoura_window[df_cenoura_window['nome_vendedor'] == vend]
+            media_6m = df_vend_window.groupby('MŒs_Ano')['codigo_cliente'].nunique().mean() if not df_vend_window.empty else 0
+            df_vend_mes = df_cenoura_mes[df_cenoura_mes['nome_vendedor'] == vend] if not df_cenoura_mes.empty else pd.DataFrame()
+            clientes_mes = df_vend_mes['codigo_cliente'].nunique() if not df_vend_mes.empty else 0
+            pct = (clientes_mes / media_6m * 100) if media_6m > 0 else 0
+            lista_cen.append({
+                'Vendedor': vend,
+                'Média 6M': round(media_6m, 1),
+                'Mês Atual': clientes_mes,
+                '% Mês vs Média': round(pct, 1)
+            })
+        df_cen_vend = pd.DataFrame(lista_cen)
+
+        fig_cen_media = px.bar(df_cen_vend, x='Vendedor', y='Média 6M', title='Média 6 meses',
+                               text='Média 6M', color='Média 6M')
+        st.plotly_chart(fig_cen_media, use_container_width=True)
+
+        fig_cen_mes = px.bar(df_cen_vend, x='Vendedor', y='Mês Atual', title='Mês Atual',
+                             text='Mês Atual', color='Mês Atual')
+        st.plotly_chart(fig_cen_mes, use_container_width=True)
+
+        fig_cen_pct = px.bar(df_cen_vend, x='Vendedor', y='% Mês vs Média', title='% Mês vs Média 6M',
+                             text='% Mês vs Média', color='% Mês vs Média')
+        st.plotly_chart(fig_cen_pct, use_container_width=True)
+
+        st.dataframe(df_cen_vend, use_container_width=True, hide_index=True)
+    else:
+        st.warning("Nenhum dado de Cenoura & Bronze para os filtros atuais.")
+
+# ============================================================
+# PÁGINA: BATALHA NAVAL (Geral)
+# ============================================================
+elif opcao == "📋 Batalha Naval":
+    meses_batalha = sorted(df_relatorio_base['MŒs_Ano'].dropna().unique())
+    if not meses_batalha:
+        st.warning("Nenhum dado disponível para o relatório.")
+        st.stop()
+
+    col_bat1, col_bat2 = st.columns(2)
+    with col_bat1:
+        mes_bat_inicio = st.selectbox("Mês início:", options=meses_batalha, index=0, key='mes_bat_inicio')
+    with col_bat2:
+        mes_bat_fim = st.selectbox("Mês fim:", options=meses_batalha, index=len(meses_batalha)-1, key='mes_bat_fim')
+
+    if mes_bat_inicio <= mes_bat_fim:
+        df_relatorio = df_relatorio_base[(df_relatorio_base['MŒs_Ano'] >= mes_bat_inicio) & (df_relatorio_base['MŒs_Ano'] <= mes_bat_fim)]
+    else:
+        st.warning("Mês início deve ser menor ou igual ao mês fim.")
+        st.stop()
+
+    matriz = df_relatorio.pivot_table(index='codigo_cliente', columns='Nome_Fabricante', aggfunc='size', fill_value=0)
+    mapa_nomes = df_relatorio[['codigo_cliente', 'nome_cliente']].drop_duplicates('codigo_cliente')
+    mapa_nomes_dict = dict(zip(mapa_nomes['codigo_cliente'], mapa_nomes['nome_cliente']))
+    matriz_bin = (matriz > 0).astype(int)
+    matriz_bin['Nome_Cliente'] = matriz.index.map(lambda x: mapa_nomes_dict.get(x, 'N/A'))
+    matriz_bin['Total_Indústrias'] = matriz_bin.drop(columns=['Nome_Cliente']).sum(axis=1)
+    matriz_bin = matriz_bin.reset_index().rename(columns={'codigo_cliente': 'Código'})
+    colunas_fabricantes = [c for c in matriz_bin.columns if c not in ['Código', 'Nome_Cliente', 'Total_Indústrias']]
+    matriz_bin = matriz_bin[['Código', 'Nome_Cliente'] + colunas_fabricantes + ['Total_Indústrias']]
+
+    st.metric("Total de Clientes no Relatório", len(matriz_bin))
+
+    def color_bn(val):
+        if val == 1:
+            return 'background-color: #c6efce; color: #006100; font-weight: bold; text-align: center'
+        elif val == 0:
+            return 'background-color: #ffc7ce; color: #9c0006; font-weight: bold; text-align: center'
+        return ''
+
+    styled_bn = matriz_bin.style.map(color_bn, subset=colunas_fabricantes)
+
+    with st.expander("Visualizar tabela", expanded=False):
+        st.dataframe(styled_bn, use_container_width=True, hide_index=True, height=400)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            matriz_bin.to_excel(writer, index=False, sheet_name='Batalha Naval')
+        st.download_button("📥 Baixar Excel", data=output.getvalue(),
+                           file_name=f'batalha_naval_{datetime.now().strftime("%Y%m%d")}.xlsx',
+                           mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', use_container_width=True)
+
+# ============================================================
+# PÁGINA: FICHA DO CLIENTE
+# ============================================================
+elif opcao == "🔍 Ficha do Cliente":
+    meses_ficha = sorted(df_relatorio_base['MŒs_Ano'].dropna().unique())
+    if not meses_ficha:
+        st.warning("Nenhum dado disponível para a ficha.")
+        st.stop()
+
+    col_fich1, col_fich2 = st.columns(2)
+    with col_fich1:
+        mes_ficha_inicio = st.selectbox("Mês início:", options=meses_ficha, index=0, key='mes_ficha_inicio')
+    with col_fich2:
+        mes_ficha_fim = st.selectbox("Mês fim:", options=meses_ficha, index=len(meses_ficha)-1, key='mes_ficha_fim')
+
+    if mes_ficha_inicio <= mes_ficha_fim:
+        df_ficha = df_relatorio_base[(df_relatorio_base['MŒs_Ano'] >= mes_ficha_inicio) & (df_relatorio_base['MŒs_Ano'] <= mes_ficha_fim)]
+    else:
+        st.warning("Mês início deve ser menor ou igual ao mês fim.")
+        st.stop()
+
+    try:
+        df_clientes_unicos = df_ficha[['codigo_cliente', 'nome_cliente']].drop_duplicates().dropna()
+        df_clientes_unicos['cliente_label'] = df_clientes_unicos['codigo_cliente'].astype(str) + ' - ' + df_clientes_unicos['nome_cliente'].astype(str)
+        lista_clientes = sorted(df_clientes_unicos['cliente_label'].unique())
+    except:
+        lista_clientes = []
+
+    if lista_clientes:
+        cliente_sel = st.selectbox("Selecione um cliente:", lista_clientes, key='ficha_cliente')
+        if cliente_sel:
+            codigo = cliente_sel.split(' - ')[0].strip()
+            df_cliente = df_ficha[df_ficha['codigo_cliente'].astype(str).str.strip() == codigo]
+            if not df_cliente.empty:
+                def valor_ou_vazio(v):
+                    if pd.isna(v) or v == '':
+                        return ''
+                    return v
+
+                st.write(f"**Código:** {codigo}")
+                st.write(f"**Nome:** {valor_ou_vazio(df_cliente['nome_cliente'].iloc[0])}")
+                st.write(f"**Coligação:** {valor_ou_vazio(df_cliente['Cliente_Coligacao'].iloc[0])}")
+                st.write(f"**Vendedor:** {valor_ou_vazio(df_cliente['nome_vendedor'].iloc[0])}")
+                st.write(f"**Coordenador:** {valor_ou_vazio(df_cliente['Nome_Coordenador'].iloc[0])}")
+
+                st.write("**Positivação por Indústria e Mês:**")
+                meses_disp = sorted(df_cliente['MŒs_Ano'].dropna().unique())
+                if meses_disp:
+                    industrias_para_tabela = INDUSTRIAS_PERMITIDAS if pasta_selecionada != "Todas" else TODAS_INDUSTRIAS
+                    tabela = []
+                    for ind in industrias_para_tabela:
+                        linha = {'Indústria': ind}
+                        for m in meses_disp:
+                            venda = ((df_cliente['Nome_Fabricante'] == ind) & (df_cliente['MŒs_Ano'] == m)).any()
+                            linha[m] = 1 if venda else 0
+                        linha['Total'] = sum(1 for m in meses_disp if linha[m] == 1)
+                        tabela.append(linha)
+                    df_tab = pd.DataFrame(tabela)
+
+                    rename_cols_ficha = {m: formatar_mes_rotulo(m) for m in meses_disp}
+                    df_tab.rename(columns=rename_cols_ficha, inplace=True)
+                    colunas_finais = ['Indústria'] + list(rename_cols_ficha.values()) + ['Total']
+                    df_tab = df_tab[colunas_finais]
+
+                    def color_ficha(val):
+                        if val == 1:
+                            return 'background-color: #c6efce; color: #006100; font-weight: bold; text-align: center'
+                        elif val == 0:
+                            return 'background-color: #ffc7ce; color: #9c0006; font-weight: bold; text-align: center'
+                        return ''
+
+                    styled_ficha = df_tab.style.map(color_ficha, subset=list(rename_cols_ficha.values()))
+                    st.dataframe(styled_ficha, use_container_width=True, hide_index=True, height=400)
+
+                    output_ficha = BytesIO()
+                    with pd.ExcelWriter(output_ficha, engine='openpyxl') as writer:
+                        df_tab.to_excel(writer, index=False, sheet_name='Ficha Cliente')
+                    st.download_button("📥 Baixar Excel (Ficha)", data=output_ficha.getvalue(),
+                                       file_name=f'ficha_cliente_{codigo}_{datetime.now().strftime("%Y%m%d")}.xlsx',
+                                       mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', use_container_width=True)
+                else:
+                    st.info("Nenhum mês com vendas para este cliente no período selecionado.")
+            else:
+                st.warning("Cliente não encontrado.")
+    else:
+        st.warning("Nenhum cliente encontrado.")
