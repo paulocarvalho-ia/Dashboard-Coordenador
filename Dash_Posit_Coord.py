@@ -19,7 +19,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilo para botões e alinhamento de tabelas
 st.markdown("""
 <style>
     a[href*="/edit"] { display: none !important; }
@@ -35,7 +34,7 @@ st.markdown("""
         padding: 8px 4px;
         text-align: center;
     }
-    /* Alinhar números à direita nas tabelas */
+    /* Alinhamento à direita nas tabelas */
     .dataframe th, .dataframe td {
         text-align: right !important;
     }
@@ -52,9 +51,7 @@ SHEET_ID = "100LtVtmS76bT2CJd-EIb-bHTgX3F1BVm8Er5vUa-VYQ"
 
 @st.cache_data(ttl=300)
 def load_data():
-    """Carrega e normaliza todos os dados do Google Sheets"""
     url_base = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet="
-
     try:
         df_base = pd.read_csv(url_base + quote("BASE"))
         df_bi = pd.read_csv(url_base + quote("BI"))
@@ -74,7 +71,7 @@ def load_data():
         texto = re.sub(r'\s+', ' ', texto)
         return texto
 
-    # ============ BASE ============
+    # BASE
     df_base.columns = [str(col).strip() for col in df_base.columns]
     base_rename = {}
     for col in df_base.columns:
@@ -110,7 +107,7 @@ def load_data():
         st.error(f"Colunas essenciais não encontradas no DataFrame BASE: {missing_base}")
         st.stop()
 
-    # ============ BI ============
+    # BI
     df_bi.columns = [str(col).strip() for col in df_bi.columns]
     bi_rename = {}
     for col in df_bi.columns:
@@ -166,7 +163,7 @@ def load_data():
                 return 0.0
         df_bi['Valor_Vendas'] = df_bi['Valor_Vendas'].apply(converter_valor)
 
-    # ============ MERGE ============
+    # MERGE
     df_base_dedup = df_base.drop_duplicates(subset=['codigo_cliente'], keep='first')
     df_merged = df_bi.merge(
         df_base[['codigo_cliente', 'nome_cliente', 'nome_vendedor_base', 'Cliente_Coligacao',
@@ -419,7 +416,7 @@ if opcao == "🏠 Visão Geral":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# PÁGINA: SOFTYS FALCON (COM TOP 10 CLIENTES)
+# PÁGINA: SOFTYS FALCON (COM TOP 10 CLIENTES CORRIGIDO)
 # ============================================================
 elif opcao == "🟢 Softys Falcon":
     df_softys = df_relatorio_base[df_relatorio_base['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
@@ -434,7 +431,6 @@ elif opcao == "🟢 Softys Falcon":
             ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
             mes_atual_num = mes_num
         else:
-            # Se "Todos", usa o último mês disponível no df_softys filtrado
             if not df_softys.empty:
                 ultimo_periodo = df_softys['MŒs_Ano'].max()
                 ano_ref = int(ultimo_periodo.split('-')[0])
@@ -445,7 +441,7 @@ elif opcao == "🟢 Softys Falcon":
 
         mes_atual_str = f"{ano_ref}-{mes_atual_num:02d}"
 
-        # Definir meses anteriores (6 meses)
+        # Meses anteriores
         meses_6m = []
         for i in range(1, 7):
             mes = mes_atual_num - i
@@ -455,53 +451,46 @@ elif opcao == "🟢 Softys Falcon":
                 ano -= 1
             meses_6m.append(f"{ano}-{mes:02d}")
 
-        # Filtrar dados do mês atual e dos 6 meses anteriores
         df_top_mes = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]
         df_top_6m = df_softys[df_softys['MŒs_Ano'].isin(meses_6m)]
 
-        # Criar chave de agrupamento híbrida
-        df_top_mes = df_top_mes.copy()
-        df_top_6m = df_top_6m.copy()
-
+        # Função para gerar chave de agrupamento
         def gerar_chave_top(df):
+            df = df.copy()
             df['Top_Key'] = df['Cliente_Coligacao'].astype(str).str.strip()
-            # Se coligação vazia ou "DIVERSOS", usar cliente isolado
+            # Ignorar coligações vazias ou "DIVERSOS"
             df.loc[df['Top_Key'].isin(['', 'nan', 'DIVERSOS', 'Diversos', 'diversos']), 'Top_Key'] = df['codigo_cliente'].astype(str)
-            df['Top_Label'] = df['Top_Key']  # A label será a chave, depois substituímos para exibição
             return df
 
         df_top_mes = gerar_chave_top(df_top_mes)
         df_top_6m = gerar_chave_top(df_top_6m)
 
-        # Para rótulo: se for coligação, usa o nome; se for cliente isolado, usa nome do cliente
-        # Precisamos mapear as chaves para rótulos legíveis
-        df_label_base = df_base[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao']].drop_duplicates()
-        df_label_base['Cliente_Coligacao'] = df_label_base['Cliente_Coligacao'].astype(str).str.strip()
-        df_label_base.loc[df_label_base['Cliente_Coligacao'].isin(['', 'nan', 'DIVERSOS', 'Diversos', 'diversos']), 'Cliente_Coligacao'] = df_label_base['codigo_cliente'].astype(str)
-
-        # Mapear cada possível top_key para um rótulo
-        map_colig = df_label_base.drop_duplicates(subset=['Cliente_Coligacao']).set_index('Cliente_Coligacao')['nome_cliente'].to_dict()
-        map_client = df_label_base.drop_duplicates(subset=['codigo_cliente']).set_index('codigo_cliente')['nome_cliente'].to_dict()
-
-        def get_label(key):
-            if key.startswith('CLI-'):
-                cod = key.split('CLI-')[1]
-                return map_client.get(cod, key)
-            else:
-                return map_colig.get(key, key)
-
-        # Soma valores por Top_Key
+        # Somas por chave
         soma_mes = df_top_mes.groupby('Top_Key')['Valor_Vendas'].sum().reset_index()
         soma_mes.columns = ['Top_Key', 'Mês Atual']
         soma_6m = df_top_6m.groupby('Top_Key')['Valor_Vendas'].sum().reset_index()
         soma_6m.columns = ['Top_Key', 'Total 6M']
         soma_6m['Média 6M'] = soma_6m['Total 6M'] / 6
 
-        df_top = soma_mes.merge(soma_6m[['Top_Key', 'Média 6M']], on='Top_Key', how='left').fillna(0)
+        # Merge OUTER para incluir clientes sem venda no mês atual
+        df_top = soma_6m[['Top_Key', 'Média 6M']].merge(soma_mes, on='Top_Key', how='left').fillna(0)
+        df_top = df_top[df_top['Média 6M'] > 0]  # apenas clientes com venda no período 6M
+
+        # Mapear rótulo
+        df_label = df_base[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao']].drop_duplicates()
+        df_label['Cliente_Coligacao'] = df_label['Cliente_Coligacao'].astype(str).str.strip()
+        df_label.loc[df_label['Cliente_Coligacao'].isin(['', 'nan', 'DIVERSOS', 'Diversos', 'diversos']), 'Cliente_Coligacao'] = df_label['codigo_cliente'].astype(str)
+
+        map_colig = df_label.drop_duplicates(subset=['Cliente_Coligacao']).set_index('Cliente_Coligacao')['nome_cliente'].to_dict()
+        map_client = df_label.drop_duplicates(subset=['codigo_cliente']).set_index('codigo_cliente')['nome_cliente'].to_dict()
+
+        def get_label(key):
+            return map_colig.get(key, map_client.get(key, key))
+
         df_top['Cliente'] = df_top['Top_Key'].apply(get_label)
         df_top = df_top[['Cliente', 'Mês Atual', 'Média 6M']]
 
-        # Ordenar pela média decrescente e pegar top 10
+        # Ordenar pela média 6M decrescente
         df_top = df_top.sort_values('Média 6M', ascending=False).head(10)
 
         # Linha de total
@@ -512,14 +501,14 @@ elif opcao == "🟢 Softys Falcon":
         else:
             variacao_total = 0
 
-        # Preparar exibição formatada
+        # Exibição formatada
         df_top_display = df_top.copy()
         df_top_display['Mês Atual'] = df_top_display['Mês Atual'].apply(formatar_numero_br)
         df_top_display['Média 6M'] = df_top_display['Média 6M'].apply(formatar_numero_br)
         df_top_display.loc['TOTAL'] = ['TOTAL', formatar_numero_br(total_mes), formatar_numero_br(total_media)]
         df_top_display.reset_index(drop=True, inplace=True)
 
-        # Gráfico de barras agrupadas
+        # Gráfico
         fig_top = go.Figure()
         fig_top.add_trace(go.Bar(
             x=df_top['Cliente'],
@@ -544,11 +533,9 @@ elif opcao == "🟢 Softys Falcon":
             xaxis_title='Cliente'
         )
         st.plotly_chart(fig_top, use_container_width=True)
-
-        # Tabela
         st.dataframe(df_top_display, use_container_width=True, hide_index=True)
 
-        # Batalha Naval Softys (mantido)
+        # Batalha Naval Softys (mantida)
         st.markdown("**Batalha Naval Softys Falcon — Clientes que compraram**")
         df_softys_ano = df_softys[(df_softys['Ano'] == ano_ref) & (df_softys['MŒs'] <= mes_atual_num)]
         df_softys_clientes = df_softys_ano[['codigo_cliente', 'nome_cliente', 'Municipio',
