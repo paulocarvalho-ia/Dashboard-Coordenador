@@ -431,25 +431,38 @@ if opcao == "🏠 Visão Geral":
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# PÁGINA: SOFTYS FALCON (DIAGNÓSTICO)
+# PÁGINA: SOFTYS FALCON (DIAGNÓSTICO ESPECÍFICO)
 # ============================================================
 elif opcao == "🟢 Softys Falcon":
-    st.subheader("Diagnóstico Softys Falcon (temporário)")
+    st.subheader("Diagnóstico Softys Falcon - Coligação DROGARIA UNICA FARMA")
 
     df_softys = df_relatorio_base[df_relatorio_base['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
-    st.write(f"Total de linhas Softys Falcon: {len(df_softys)}")
 
-    st.write("Meses únicos no df_softys:")
-    st.write(sorted(df_softys['MŒs_Ano'].unique()))
+    # Mostrar valores únicos de Cliente_Coligacao que contêm UNICA
+    st.write("Valores únicos de coligação contendo 'UNICA':")
+    valores_unicos = df_softys[df_softys['Cliente_Coligacao'].str.contains('UNICA', case=False, na=False)]['Cliente_Coligacao'].unique()
+    st.write(valores_unicos)
 
-    st.write("Soma de Valor_Vendas por mês (Softys Falcon):")
-    soma_mes = df_softys.groupby('MŒs_Ano')['Valor_Vendas'].sum().reset_index()
-    st.dataframe(soma_mes)
+    # Filtrar exatamente DROGARIA UNICA FARMA
+    df_una = df_softys[df_softys['Cliente_Coligacao'] == 'DROGARIA UNICA FARMA'].copy()
 
-    st.write("Verificando coligação UNICA FARMA:")
-    df_una = df_softys[df_softys['Cliente_Coligacao'].str.contains('UNICA FARMA', case=False, na=False)]
-    st.write(f"Linhas UNICA FARMA: {len(df_una)}")
+    st.write(f"Linhas exatamente 'DROGARIA UNICA FARMA': {len(df_una)}")
     if not df_una.empty:
-        st.dataframe(df_una[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'MŒs_Ano', 'Valor_Vendas']])
+        st.dataframe(df_una[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'MŒs_Ano', 'Valor_Vendas']].head(10))
+
+        # Soma por mês
+        soma_por_mes_una = df_una.groupby('MŒs_Ano')['Valor_Vendas'].sum().reset_index()
+        st.write("Soma por mês para 'DROGARIA UNICA FARMA' (Softys Falcon):")
+        st.dataframe(soma_por_mes_una)
+
+        # Soma de setembro (se existir)
+        if '2026-09' in soma_por_mes_una['MŒs_Ano'].values:
+            soma_set = soma_por_mes_una[soma_por_mes_una['MŒs_Ano'] == '2026-09']['Valor_Vendas'].iloc[0]
+            st.write(f"Soma setembro/2026: {formatar_numero_br(soma_set)}")
+        else:
+            st.warning("Setembro/2026 não encontrado nessa coligação.")
+
+    else:
+        st.warning("Nenhuma linha com 'DROGARIA UNICA FARMA' exata.")
 
     st.stop()
