@@ -434,45 +434,23 @@ if opcao == "🏠 Visão Geral":
 # PÁGINA: SOFTYS FALCON (DIAGNÓSTICO)
 # ============================================================
 elif opcao == "🟢 Softys Falcon":
-    st.subheader("Diagnóstico TOP 10 (temporário)")
+    st.subheader("Diagnóstico Softys Falcon")
 
     df_softys = df_relatorio_base[df_relatorio_base['Nome_Fabricante'] == 'SOFTYS FALCON'].copy()
 
-    if mes_selecionado != "Todos":
-        mes_num = int(mes_selecionado.split(' - ')[0])
-        anos_do_mes = df_softys[df_softys['MŒs'] == mes_num]['Ano'].unique()
-        ano_ref = max(anos_do_mes) if len(anos_do_mes) > 0 else df_softys['Ano'].max()
-    else:
-        ano_ref = df_softys['Ano'].max()
-        mes_num = df_softys[df_softys['Ano'] == ano_ref]['MŒs'].max()
+    st.write(f"Total de linhas Softys Falcon: {len(df_softys)}")
+    st.write(f"Colunas disponíveis: {list(df_softys.columns)}")
 
-    mes_atual_str = f"{ano_ref}-{mes_num:02d}"
+    st.write("Amostra dos dados:")
+    st.dataframe(df_softys.head())
 
-    meses_6m = []
-    for i in range(1, 7):
-        mes = mes_num - i
-        ano = ano_ref
-        while mes <= 0:
-            mes += 12
-            ano -= 1
-        meses_6m.append(f"{ano}-{mes:02d}")
+    st.write("Linhas da coligação DROGARIA UNICA FARMA:")
+    df_una = df_softys[df_softys['Cliente_Coligacao'].str.contains('UNICA FARMA', case=False, na=False)]
+    st.dataframe(df_una[['codigo_cliente', 'nome_cliente', 'Cliente_Coligacao', 'MŒs_Ano', 'Valor_Vendas']])
 
-    df_mes = df_softys[df_softys['MŒs_Ano'] == mes_atual_str]
-    df_6m = df_softys[df_softys['MŒs_Ano'].isin(meses_6m)]
-
-    soma_mes = df_mes.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
-    soma_mes.columns = ['Cliente', 'Mês Atual']
-    soma_6m = df_6m.groupby('Cliente_Coligacao')['Valor_Vendas'].sum().reset_index()
-    soma_6m.columns = ['Cliente', 'Total 6M']
-    soma_6m['Média 6M'] = soma_6m['Total 6M'] / 6
-
-    df_top = soma_6m[['Cliente', 'Média 6M']].merge(soma_mes, on='Cliente', how='left').fillna(0)
-
-    st.write("Valores da coligação DROGARIA UNICA FARMA:")
-    st.dataframe(df_top[df_top['Cliente'].str.contains('UNICA FARMA', case=False, na=False)])
-
-    st.write("Top 5 por média 6M:")
-    df_top_sorted = df_top.sort_values('Média 6M', ascending=False).head(5)
-    st.dataframe(df_top_sorted)
+    if not df_una.empty:
+        soma_por_mes = df_una.groupby('MŒs_Ano')['Valor_Vendas'].sum().reset_index()
+        st.write("Soma por mês para DROGARIA UNICA FARMA:")
+        st.dataframe(soma_por_mes)
 
     st.stop()
